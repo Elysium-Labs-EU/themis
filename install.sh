@@ -131,6 +131,27 @@ fetch_json_field() {
     echo "$response" | grep -o "\"$field\":\"[^\"]*\"" | sed -E 's/"[^"]+":"([^"]+)"/\1/' | head -1
 }
 
+check_lynis() {
+    if command -v lynis &> /dev/null; then
+        dim "  Lynis: found"
+        return
+    fi
+
+    warn "Lynis not found on PATH — themis shells out to it for the audit"
+
+    if ! command -v apt-get &> /dev/null; then
+        dim "  Install it manually: https://cisofy.com/lynis/"
+        return
+    fi
+
+    if confirm "Install lynis now via apt-get?" "y"; then
+        apt-get update -qq && apt-get install -y lynis
+        success "Installed lynis"
+    else
+        dim "  Install later: apt-get install lynis"
+    fi
+}
+
 detect_arch() {
     local arch
     arch=$(uname -m)
@@ -207,6 +228,8 @@ main() {
     local arch
     arch=$(detect_arch)
     dim "  Architecture: $arch"
+
+    check_lynis
 
     if [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
         dim "  Install directory: $INSTALL_DIR (custom)"

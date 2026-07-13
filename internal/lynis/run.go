@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"codeberg.org/Elysium_Labs/themis/internal/ui"
 )
 
 // ReportPath is the default location Lynis writes its machine-readable
@@ -21,6 +23,12 @@ func Audit(ctx context.Context) ([]Finding, error) {
 		// Lynis exits non-zero when it has warnings/suggestions; only
 		// treat a missing binary or report as a hard failure.
 		if !errors.As(err, &exitErr) {
+			if errors.Is(err, exec.ErrNotFound) {
+				return nil, &ui.UserError{
+					Err:  errors.New("lynis is not installed"),
+					Hint: "apt install lynis",
+				}
+			}
 			return nil, fmt.Errorf("running lynis audit: %w", err)
 		}
 	}

@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
 	"codeberg.org/Elysium_Labs/themis/internal/lynis"
 	"github.com/spf13/cobra"
@@ -71,7 +69,7 @@ Exit codes:
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		findings, err := lynis.Audit(cmd.Context())
 		if err != nil {
-			return writeJSONErr(cmd, fmt.Errorf("running lynis audit: %w", err))
+			return writeJSONErr(cmd, err)
 		}
 		fixes, err := resolveCheckFixes()
 		if err != nil {

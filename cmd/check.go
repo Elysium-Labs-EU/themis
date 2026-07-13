@@ -18,9 +18,14 @@ func newCheckCmd() *cobra.Command {
 		Use:   "check",
 		Short: "Run a Lynis audit and list actionable findings",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			findings, err := lynis.Audit(cmd.Context())
+			var findings []lynis.Finding
+			err := ui.WithSpinner("Running lynis audit...", func() error {
+				var err error
+				findings, err = lynis.Audit(cmd.Context())
+				return err
+			})
 			if err != nil {
-				return fmt.Errorf("running lynis audit: %w", err)
+				return err
 			}
 			fixes, err := resolveCheckFixes()
 			if err != nil {
