@@ -16,14 +16,14 @@ import (
 // os.Executable() (which, under `go test`, is the test binary itself).
 func runUninstall(in io.Reader, out io.Writer, exePath, stateDir string, yes, purge bool) error {
 	if !yes && !ui.Confirm(in, out, fmt.Sprintf("Remove themis (%s)?", exePath), false) {
-		fmt.Fprintln(out, "Cancelled.")
+		_, _ = fmt.Fprintln(out, "Canceled.")
 		return nil
 	}
 
 	if err := os.Remove(exePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("removing %s: %w", exePath, err)
 	}
-	fmt.Fprintf(out, "%s removed %s\n", ui.LabelSuccess.Render("✓"), exePath)
+	_, _ = fmt.Fprintf(out, "%s removed %s\n", ui.LabelSuccess.Render("✓"), exePath)
 
 	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
 		return nil
@@ -38,9 +38,9 @@ func runUninstall(in io.Reader, out io.Writer, exePath, stateDir string, yes, pu
 		if err := os.RemoveAll(stateDir); err != nil {
 			return fmt.Errorf("removing %s: %w", stateDir, err)
 		}
-		fmt.Fprintf(out, "%s removed %s\n", ui.LabelSuccess.Render("✓"), stateDir)
+		_, _ = fmt.Fprintf(out, "%s removed %s\n", ui.LabelSuccess.Render("✓"), stateDir)
 	} else {
-		fmt.Fprintf(out, "%s state data left in place — remove manually: %s\n",
+		_, _ = fmt.Fprintf(out, "%s state data left in place — remove manually: %s\n",
 			ui.TextMuted.Render("i"), ui.TextCommand.Render("rm -rf "+stateDir))
 	}
 	return nil

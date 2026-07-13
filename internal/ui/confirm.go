@@ -14,7 +14,7 @@ func Confirm(in io.Reader, out io.Writer, prompt string, defaultYes bool) bool {
 	if defaultYes {
 		suffix = "[Y/n]"
 	}
-	fmt.Fprintf(out, "%s %s %s ", LabelWarning.Render("?"), prompt, suffix)
+	_, _ = fmt.Fprintf(out, "%s %s %s ", LabelWarning.Render("?"), prompt, suffix)
 
 	line, _ := bufio.NewReader(in).ReadString('\n')
 	line = strings.TrimSpace(strings.ToLower(line))

@@ -14,12 +14,11 @@ import (
 
 // withFakeCodebergAPI points internal/release's Codeberg API base at a local
 // httptest server for the duration of the test.
-func withFakeCodebergAPI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+func withFakeCodebergAPI(t *testing.T, handler http.HandlerFunc) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	t.Cleanup(release.SetAPIBase(srv.URL))
-	return srv
 }
 
 func TestRunUpdateAlreadyLatest(t *testing.T) {

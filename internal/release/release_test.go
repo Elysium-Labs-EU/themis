@@ -87,7 +87,7 @@ func TestReleaseAssetFor(t *testing.T) {
 		t.Fatalf("AssetFor(amd64) = %+v, %v", a, ok)
 	}
 
-	if _, ok := rel.AssetFor("mips"); ok {
+	if _, matched := rel.AssetFor("mips"); matched {
 		t.Fatal("AssetFor(mips) should not match")
 	}
 

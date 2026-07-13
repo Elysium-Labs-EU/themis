@@ -66,11 +66,11 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 
 	currentVer, latestVer := normalizeSemver(currentVersion), rel.TagName
 	if semver.IsValid(currentVer) && semver.IsValid(latestVer) && semver.Compare(currentVer, latestVer) >= 0 {
-		fmt.Fprintf(out, "%s already on the latest version (%s)\n", ui.LabelSuccess.Render("✓"), currentVersion)
+		_, _ = fmt.Fprintf(out, "%s already on the latest version (%s)\n", ui.LabelSuccess.Render("✓"), currentVersion)
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s new version available: %s -> %s\n", ui.LabelInfo.Render("i"), currentVersion, latestVer)
+	_, _ = fmt.Fprintf(out, "%s new version available: %s -> %s\n", ui.LabelInfo.Render("i"), currentVersion, latestVer)
 
 	arch, err := hostArch()
 	if err != nil {
@@ -85,9 +85,9 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 		return &ui.UserError{Err: fmt.Errorf("release %s is missing sha256sums.txt", latestVer)}
 	}
 
-	if err := release.CheckWritable(filepath.Dir(exePath)); err != nil {
+	if writeErr := release.CheckWritable(filepath.Dir(exePath)); writeErr != nil {
 		return &ui.UserError{
-			Err:  fmt.Errorf("%s is not writable: %w", filepath.Dir(exePath), err),
+			Err:  fmt.Errorf("%s is not writable: %w", filepath.Dir(exePath), writeErr),
 			Hint: "sudo themis update",
 		}
 	}
@@ -107,30 +107,30 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	}
 
 	checksumsTmp := filepath.Join(tmpDir, "sha256sums.txt")
-	if err := release.Download(ctx, checksums.DownloadURL, checksumsTmp); err != nil {
-		return fmt.Errorf("downloading checksums: %w", err)
+	if dlErr := release.Download(ctx, checksums.DownloadURL, checksumsTmp); dlErr != nil {
+		return fmt.Errorf("downloading checksums: %w", dlErr)
 	}
 	checksumsData, err := os.ReadFile(checksumsTmp) //nolint:gosec // fixed name in a themis-owned temp dir
 	if err != nil {
 		return fmt.Errorf("reading checksums: %w", err)
 	}
-	if err := release.VerifyChecksum(binTmp, string(checksumsData), asset.Name); err != nil {
-		return &ui.UserError{Err: err}
+	if verifyErr := release.VerifyChecksum(binTmp, string(checksumsData), asset.Name); verifyErr != nil {
+		return &ui.UserError{Err: verifyErr}
 	}
-	fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
+	_, _ = fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
 
 	backupPath := exePath + ".backup"
-	if err := release.CopyFile(exePath, backupPath); err != nil {
-		fmt.Fprintf(out, "%s could not create backup of the current binary: %v\n", ui.LabelWarning.Render("warning"), err)
+	if backupErr := release.CopyFile(exePath, backupPath); backupErr != nil {
+		_, _ = fmt.Fprintf(out, "%s could not create backup of the current binary: %v\n", ui.LabelWarning.Render("warning"), backupErr)
 	} else {
-		fmt.Fprintf(out, "%s backed up current binary to %s\n", ui.TextMuted.Render("i"), backupPath)
+		_, _ = fmt.Fprintf(out, "%s backed up current binary to %s\n", ui.TextMuted.Render("i"), backupPath)
 	}
 
-	if err := release.ReplaceBinary(binTmp, exePath); err != nil {
-		return fmt.Errorf("installing new binary: %w", err)
+	if replaceErr := release.ReplaceBinary(binTmp, exePath); replaceErr != nil {
+		return fmt.Errorf("installing new binary: %w", replaceErr)
 	}
 
-	fmt.Fprintf(out, "%s updated %s -> %s\n", ui.LabelSuccess.Render("✓"), currentVersion, latestVer)
+	_, _ = fmt.Fprintf(out, "%s updated %s -> %s\n", ui.LabelSuccess.Render("✓"), currentVersion, latestVer)
 	return nil
 }
 
