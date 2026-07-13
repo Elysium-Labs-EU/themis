@@ -55,7 +55,7 @@ build-orb: ## Build linux/arm64 binary on OrbStack $(ORB_MACHINE) (copies to /tm
 	ssh orb "export PATH=\$$PATH:/usr/local/go/bin && rm -rf /tmp/themis-src && cp -r $(PWD) /tmp/themis-src && cd /tmp/themis-src && CC=clang go build -o /tmp/themis . && echo built"
 
 demo-orb: build-orb ## Copy fresh binary to orb debian VM and run `themis check` as root (needs lynis installed on VM)
-	ssh orb "sudo /tmp/themis check"
+	ssh -t orb "sudo /tmp/themis check"
 
 lynis-install-orb: ## Install lynis on the orb debian VM (one-time setup)
 	ssh orb "sudo apt-get update && sudo apt-get install -y lynis"

@@ -3,11 +3,15 @@ package fix
 const sshdConfigPath = "/etc/ssh/sshd_config"
 
 func sshPermitRootLoginFix() Fix {
-	return sshDisableDirectiveFixAt("SSH-7408-ROOTLOGIN", "disable SSH root login (PermitRootLogin no)", sshdConfigPath, reloadSSHD, "PermitRootLogin")
+	f := sshDisableDirectiveFixAt("SSH-7408-ROOTLOGIN", "disable SSH root login (PermitRootLogin no)", sshdConfigPath, reloadSSHD, "PermitRootLogin")
+	f.LynisID = "SSH-7408"
+	return f
 }
 
 func sshPasswordAuthFix() Fix {
-	return sshDisableDirectiveFixAt("SSH-7408-PASSWDAUTH", "disable SSH password authentication (PasswordAuthentication no)", sshdConfigPath, reloadSSHD, "PasswordAuthentication")
+	f := sshDisableDirectiveFixAt("SSH-7408-PASSWDAUTH", "disable SSH password authentication (PasswordAuthentication no)", sshdConfigPath, reloadSSHD, "PasswordAuthentication")
+	f.LynisID = "SSH-7408"
+	return f
 }
 
 func reloadSSHD() error {

@@ -22,4 +22,5 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(rollbackCmd)
+	rootCmd.AddCommand(apiCmd)
 }

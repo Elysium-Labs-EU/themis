@@ -6,11 +6,23 @@ package fix
 // Fix describes one hardening action: how to detect current state, apply
 // the fix, and revert it using the data Apply returned.
 type Fix struct {
-	Check       func() (satisfied bool, err error)
-	Apply       func() (revertData []byte, err error)
-	Revert      func(revertData []byte) error
-	TestID      string
+	Check  func() (satisfied bool, err error)
+	Apply  func() (revertData []byte, err error)
+	Revert func(revertData []byte) error
+	TestID string
+	// LynisID is the raw Lynis test ID this fix addresses, when it
+	// differs from TestID (e.g. one Lynis finding split across several
+	// fixes). Empty means LynisID == TestID.
+	LynisID     string
 	Description string
+}
+
+// LynisTestID returns the raw Lynis test ID this fix addresses.
+func (f Fix) LynisTestID() string {
+	if f.LynisID != "" {
+		return f.LynisID
+	}
+	return f.TestID
 }
 
 // Registry maps test IDs to their Fix. Built once as plain data; callers

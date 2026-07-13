@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
 	"codeberg.org/Elysium_Labs/themis/internal/fix"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,25 @@ func resolveFixes() ([]PlannedFix, error) {
 		planned = append(planned, PlannedFix{TestID: id, Description: f.Description, Satisfied: satisfied})
 	}
 	return planned, nil
+}
+
+// resolveCheckFixes runs resolveFixes and resolves each result against
+// the Lynis test ID it addresses, for merging with lynis.Audit output.
+func resolveCheckFixes() ([]checkreport.Fix, error) {
+	planned, err := resolveFixes()
+	if err != nil {
+		return nil, err
+	}
+	fixes := make([]checkreport.Fix, 0, len(planned))
+	for _, p := range planned {
+		fixes = append(fixes, checkreport.Fix{
+			TestID:      p.TestID,
+			LynisID:     fix.Registry[p.TestID].LynisTestID(),
+			Description: p.Description,
+			Satisfied:   p.Satisfied,
+		})
+	}
+	return fixes, nil
 }
 
 var planCmd = &cobra.Command{

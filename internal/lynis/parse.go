@@ -12,8 +12,14 @@ import (
 type Finding struct {
 	TestID      string
 	Description string
-	Severity    string
-	Kind        string // "suggestion" or "warning"
+	// Details is extra context for the finding, e.g. the config
+	// directive and value Lynis flagged. Often "-".
+	Details string
+	// Solution is Lynis's own remediation hint (a command or setting
+	// change). Often "-"; when present, the finding is actionable even
+	// without a themis fix tracking it.
+	Solution string
+	Kind     string // "suggestion" or "warning"
 }
 
 const (
@@ -23,7 +29,7 @@ const (
 
 // ParseReport reads a Lynis report.dat stream and extracts suggestion[]
 // and warning[] entries. Each entry is pipe-delimited:
-// test_id|description|severity|f4.
+// test_id|description|details|solution|.
 func ParseReport(r io.Reader) ([]Finding, error) {
 	var findings []Finding
 
@@ -55,7 +61,10 @@ func parseFindingLine(body, kind string) Finding {
 		f.Description = fields[1]
 	}
 	if len(fields) > 2 {
-		f.Severity = fields[2]
+		f.Details = fields[2]
+	}
+	if len(fields) > 3 {
+		f.Solution = fields[3]
 	}
 	return f
 }
