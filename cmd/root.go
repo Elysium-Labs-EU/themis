@@ -13,6 +13,11 @@ var rootCmd = &cobra.Command{
 	Long: `themis wraps Lynis's audit findings with a check/plan/apply/rollback
 workflow: it reads Lynis's report, maps flagged findings to concrete fixes,
 and applies them idempotently with rollback metadata.`,
+	// main.go renders errors itself (with UserError hints where available),
+	// and a runtime failure like a missing lynis binary isn't a usage
+	// mistake, so don't dump the flag usage block after it.
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 var versionCmd = &cobra.Command{
