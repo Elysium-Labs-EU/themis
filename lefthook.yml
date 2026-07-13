@@ -17,6 +17,11 @@ pre-commit:
       run: golangci-lint run --timeout=5m
       priority: 2
 
+    fieldalignment:
+      glob: "*.go"
+      run: go tool fieldalignment ./...
+      priority: 2
+
     test:
       glob: "*.go"
       run: go test -short ./...
