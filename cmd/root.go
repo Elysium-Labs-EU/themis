@@ -2,7 +2,10 @@
 // Debian VPS hardening driven by Lynis findings.
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"codeberg.org/Elysium_Labs/themis/internal/buildinfo"
+	"github.com/spf13/cobra"
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "themis",
@@ -10,6 +13,15 @@ var rootCmd = &cobra.Command{
 	Long: `themis wraps Lynis's audit findings with a check/plan/apply/rollback
 workflow: it reads Lynis's report, maps flagged findings to concrete fixes,
 and applies them idempotently with rollback metadata.`,
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the themis version",
+	Long:  `Print the current themis version, git commit hash, and build date.`,
+	Run: func(cmd *cobra.Command, _ []string) {
+		cmd.Println(buildinfo.Get())
+	},
 }
 
 // Execute runs the themis CLI.
@@ -23,4 +35,5 @@ func init() {
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(rollbackCmd)
 	rootCmd.AddCommand(apiCmd)
+	rootCmd.AddCommand(versionCmd)
 }

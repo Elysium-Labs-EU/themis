@@ -1,9 +1,15 @@
-.PHONY: help build test test-coverage-check lint nilcheck sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean
+.PHONY: help build test test-coverage-check lint nilcheck sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
 BINARY_NAME=themis
 GOBIN=./bin
+
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+BUILD_DATE ?= $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+VERSION_PKG := codeberg.org/Elysium_Labs/themis/internal/buildinfo
+LDFLAGS := -ldflags "-X '$(VERSION_PKG).Version=$(VERSION)' -X '$(VERSION_PKG).GitCommit=$(COMMIT)' -X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)' -w -s"
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -11,7 +17,7 @@ help: ## Show this help
 
 build: ## Build binary
 	@mkdir -p $(GOBIN)
-	CGO_ENABLED=0 go build -o $(GOBIN)/$(BINARY_NAME) .
+	CGO_ENABLED=0 go build $(LDFLAGS) -o $(GOBIN)/$(BINARY_NAME) .
 
 test: ## Run tests
 	go test ./... -race -count=2
@@ -63,6 +69,40 @@ lynis-install-orb: ## Install lynis on the orb debian VM (one-time setup)
 orb-shell: ## SSH into the orb debian VM
 	ssh orb
 
+release-local: ## Build release binaries locally
+	@echo "Building release binaries..."
+	@mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/themis-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/themis-linux-arm64 .
+	cd dist && sha256sum themis-linux-* > sha256sums.txt
+	@echo "Release binaries built in ./dist/"
+	@ls -lh dist/
+
+changelog: ## Generate CHANGELOG.md from git history
+	@echo "Generating CHANGELOG.md..."
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --output CHANGELOG.md
+	@echo "CHANGELOG.md updated"
+
+changelog-preview: ## Preview unreleased changes (does not write to file)
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --unreleased
+
+release: ## Update changelog, tag and push a release (requires TAG=v1.2.0)
+	@if [ -z "$(TAG)" ]; then echo "Usage: make release TAG=v1.2.0"; exit 1; fi
+	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff not found. Install: https://git-cliff.org/docs/installation"; exit 1; }
+	git cliff --tag $(TAG) --output CHANGELOG.md
+	git add CHANGELOG.md
+	git diff --cached --quiet CHANGELOG.md || git commit -m "chore: update changelog for $(TAG)"
+	git push origin HEAD
+	git tag -a $(TAG) -m "Release $(TAG)"
+	git push origin $(TAG)
+
+pre-release: ## Tag and push a pre-release (requires TAG=v1.2.0-rc.1, no changelog update)
+	@if [ -z "$(TAG)" ]; then echo "Usage: make pre-release TAG=v1.2.0-rc.1"; exit 1; fi
+	git tag -a $(TAG) -m "Pre-release $(TAG)"
+	git push origin $(TAG)
+
 clean: ## Remove build artifacts
-	rm -rf $(GOBIN) coverage.out
+	rm -rf $(GOBIN) dist/ coverage.out
 	go clean
