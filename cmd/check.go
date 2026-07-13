@@ -2,13 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
 	"codeberg.org/Elysium_Labs/themis/internal/lynis"
 	"codeberg.org/Elysium_Labs/themis/internal/ui"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
 	"github.com/spf13/cobra"
 )
 
@@ -40,9 +39,6 @@ func newCheckCmd() *cobra.Command {
 var checkCmd = newCheckCmd()
 
 func fixSummary(fixes []checkreport.Fix) string {
-	if len(fixes) == 0 {
-		return ui.TableMutedStyle.Render("-")
-	}
 	parts := make([]string, 0, len(fixes))
 	for _, f := range fixes {
 		icon := ui.LabelWarning.Render("○ apply")
@@ -51,17 +47,32 @@ func fixSummary(fixes []checkreport.Fix) string {
 		}
 		parts = append(parts, f.TestID+" "+icon)
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, ", ")
+}
+
+func printFindingBlock(out io.Writer, f *checkreport.Finding) {
+	kind := ui.TextMuted.Render(f.Kind)
+	if f.Kind == "warning" {
+		kind = ui.LabelWarning.Render(f.Kind)
+	}
+	_, _ = fmt.Fprintf(out, "%s %s\n", ui.TextBold.Render(f.TestID), kind)
+	_, _ = fmt.Fprintf(out, "  %s\n", f.Description)
+	if f.Solution != "" && f.Solution != "-" {
+		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("lynis solution:"), f.Solution)
+	}
+	if len(f.Fixes) > 0 {
+		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("themis fix:"), fixSummary(f.Fixes))
+	}
 }
 
 func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll bool) {
 	out := cmd.OutOrStdout()
 
 	shown := make([]checkreport.Finding, 0, len(report.Findings))
-	hidden := 0
+	deemphasized := make([]checkreport.Finding, 0, len(report.Findings))
 	for _, f := range report.Findings {
 		if !f.Actionable && !showAll {
-			hidden++
+			deemphasized = append(deemphasized, f)
 			continue
 		}
 		shown = append(shown, f)
@@ -69,40 +80,20 @@ func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll boo
 
 	_, _ = fmt.Fprintf(out, "%s Lynis reported %d finding(s)\n\n", ui.LabelInfo.Render("i"), len(report.Findings))
 
-	rows := make([][]string, 0, len(shown))
-	for _, f := range shown {
-		kind := ui.TextMuted.Render(f.Kind)
-		if f.Kind == "warning" {
-			kind = ui.LabelWarning.Render(f.Kind)
+	for i := range shown {
+		if i > 0 {
+			_, _ = fmt.Fprintln(out)
 		}
-		solution := ui.TableMutedStyle.Render("-")
-		if f.Solution != "" && f.Solution != "-" {
-			solution = f.Solution
-		}
-		rows = append(rows, []string{f.TestID, kind, f.Description, solution, fixSummary(f.Fixes)})
+		printFindingBlock(out, &shown[i])
 	}
 
-	if len(rows) > 0 {
-		t := table.New().
-			Border(lipgloss.RoundedBorder()).
-			BorderStyle(lipgloss.NewStyle().Foreground(ui.TableBorderColor)).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == table.HeaderRow {
-					return ui.TableHeaderStyle
-				}
-				if row%2 == 0 {
-					return ui.TableEvenRowStyle
-				}
-				return ui.TableOddRowStyle
-			}).
-			Headers("test id", "kind", "description", "lynis solution", "themis fix").
-			Rows(rows...)
-		_, _ = fmt.Fprintln(out, t)
-	}
-
-	if hidden > 0 {
-		_, _ = fmt.Fprintf(out, "\n%s %d finding(s) with no themis fix and no Lynis solution hidden — run %s to see them\n",
-			ui.TextMuted.Render("i"), hidden, ui.TextCommand.Render("themis check --all"))
+	if len(deemphasized) > 0 {
+		_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no Lynis solution):\n",
+			ui.TextMuted.Render("i"), len(deemphasized))
+		for _, f := range deemphasized {
+			_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(f.TestID+" — "+f.Description))
+		}
+		_, _ = fmt.Fprintf(out, "  run %s for full details\n", ui.TextCommand.Render("themis check --all"))
 	}
 
 	if len(report.Native) > 0 {
