@@ -1,5 +1,14 @@
 package fix
 
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
 const sshdConfigPath = "/etc/ssh/sshd_config"
 
 func sshPermitRootLoginFix() Fix {
@@ -9,9 +18,77 @@ func sshPermitRootLoginFix() Fix {
 }
 
 func sshPasswordAuthFix() Fix {
-	f := sshDisableDirectiveFixAt("SSH-7408-PASSWDAUTH", "disable SSH password authentication (PasswordAuthentication no)", sshdConfigPath, reloadSSHD, "PasswordAuthentication")
+	return sshPasswordAuthFixWith(sshdConfigPath, reloadSSHD, systemHomeDirectories)
+}
+
+// sshPasswordAuthFixWith builds the SSH-7408-PASSWDAUTH fix with path,
+// reload, and homeDirs parameterized for testability (mirrors
+// sshDisableDirectiveFixAt's rationale below).
+func sshPasswordAuthFixWith(path string, reload func() error, homeDirs func() ([]string, error)) Fix {
+	f := sshDisableDirectiveFixAt("SSH-7408-PASSWDAUTH", "disable SSH password authentication (PasswordAuthentication no)", path, reload, "PasswordAuthentication")
 	f.LynisID = "SSH-7408"
+	applyDirective := f.Apply
+	f.Apply = func() ([]byte, error) {
+		homes, err := homeDirs()
+		if err != nil {
+			return nil, fmt.Errorf("listing home directories: %w", err)
+		}
+		ok, err := authorizedKeysExist(homes)
+		if err != nil {
+			return nil, fmt.Errorf("checking for authorized_keys: %w", err)
+		}
+		if !ok {
+			return nil, errors.New("refusing to disable SSH password authentication: no user has an authorized_keys file, this would lock you out")
+		}
+		return applyDirective()
+	}
 	return f
+}
+
+// authorizedKeysExist reports whether any of the given home directories
+// has a non-empty .ssh/authorized_keys, i.e. whether pubkey login is
+// actually possible. Guards sshPasswordAuthFix: disabling password auth
+// without this would permanently lock out password-only accounts, since
+// there is no fallback short of console access.
+func authorizedKeysExist(homes []string) (bool, error) {
+	for _, home := range homes {
+		content, existed, err := readFileOrEmpty(filepath.Join(home, ".ssh", "authorized_keys"))
+		if err != nil {
+			return false, err
+		}
+		if existed && len(strings.TrimSpace(string(content))) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// systemHomeDirectories reads /etc/passwd for the real system.
+func systemHomeDirectories() ([]string, error) {
+	return homeDirectoriesFrom("/etc/passwd")
+}
+
+// homeDirectoriesFrom returns every home directory listed in passwdPath,
+// plus /root explicitly (some minimal images omit a root passwd entry).
+func homeDirectoriesFrom(passwdPath string) ([]string, error) {
+	f, err := os.Open(passwdPath) //nolint:gosec // passwdPath is a fixed constant at the real call site; parameterized for tests
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", passwdPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	homes := []string{"/root"}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Split(scanner.Text(), ":")
+		if len(fields) >= 6 && fields[5] != "" {
+			homes = append(homes, fields[5])
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", passwdPath, err)
+	}
+	return homes, nil
 }
 
 func reloadSSHD() error {
