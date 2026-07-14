@@ -14,11 +14,10 @@ import (
 // report to.
 const ReportPath = "/var/log/lynis-report.dat"
 
-// sbinFallbacks are common install locations for lynis that a non-root
-// user's $PATH often excludes (e.g. Debian puts it in /usr/sbin, which
-// only root's PATH includes by default) — sudo works, a bare `themis
-// check` doesn't, and the resulting "not installed" error is wrong: the
-// binary is there, just not found. Check these before giving up.
+// sbinFallbacks are common install locations for lynis that root's $PATH
+// can still exclude on some distros (e.g. Debian puts it in /usr/sbin) —
+// the resulting "not installed" error would be wrong: the binary is
+// there, just not found. Check these before giving up.
 var sbinFallbacks = []string{"/usr/sbin/lynis", "/sbin/lynis"}
 
 // lynisPath resolves the lynis binary: $PATH first, falling back to
@@ -50,11 +49,23 @@ func lynisPathWith(lookPath func(string) (string, error), exists func(string) bo
 // Audit runs `lynis audit system` and returns the parsed findings from
 // the report it writes to ReportPath.
 func Audit(ctx context.Context) ([]Finding, error) {
+	// lynis audit system needs root to run its full scan and to write
+	// ReportPath (often owned root:root from a prior run either way).
+	// Check euid before paying for the multi-minute scan, rather than
+	// discovering the permission problem only once we try to open the
+	// report afterwards.
+	if os.Geteuid() != 0 {
+		return nil, &ui.UserError{
+			Err:  errors.New("themis check requires root to run and read the lynis audit"),
+			Hint: "sudo themis check",
+		}
+	}
+
 	lynisBin, err := lynisPath()
 	if err != nil {
 		return nil, &ui.UserError{
 			Err:  errors.New("lynis not found"),
-			Hint: "apt install lynis (already installed but not on PATH? try: sudo themis check)",
+			Hint: "apt install lynis (already installed but not on PATH? check /usr/sbin, /sbin)",
 		}
 	}
 
