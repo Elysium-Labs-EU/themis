@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runUninstall implements `themis uninstall` against explicit paths so it
+// runUninstall implements `themis system uninstall` against explicit paths so it
 // can be exercised in tests without touching the real installed binary or
 // os.Executable() (which, under `go test`, is the test binary itself).
 func runUninstall(in io.Reader, out io.Writer, exePath, stateDir string, yes, purge bool) error {

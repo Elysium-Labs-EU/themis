@@ -24,15 +24,6 @@ and saves rollback metadata on every run.`, buildinfo.GetVersionOnly()),
 	SilenceUsage:  true,
 }
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the themis version",
-	Long:  `Print the current themis version, git commit hash, and build date.`,
-	Run: func(cmd *cobra.Command, _ []string) {
-		cmd.Println(buildinfo.Get())
-	},
-}
-
 // Execute runs the themis CLI.
 func Execute() error {
 	return rootCmd.Execute()
@@ -44,7 +35,5 @@ func init() {
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(rollbackCmd)
 	rootCmd.AddCommand(apiCmd)
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(updateCmd)
-	rootCmd.AddCommand(uninstallCmd)
+	rootCmd.AddCommand(systemCmd)
 }

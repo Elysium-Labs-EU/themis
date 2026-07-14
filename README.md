@@ -61,7 +61,9 @@ sudo themis rollback
 | `themis apply` | Apply all unsatisfied registered fixes and save rollback state |
 | `themis rollback` | Revert the fixes applied by the last `apply` |
 | `themis api check` | Return Lynis findings merged with themis fixes as JSON |
-| `themis version` | Print version, git commit, and build date |
+| `themis system version` | Print version, git commit, and build date |
+| `themis system update` | Check for and install the latest themis release |
+| `themis system uninstall` | Remove the themis binary |
 
 ## License
 
