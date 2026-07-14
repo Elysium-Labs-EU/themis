@@ -6,6 +6,7 @@ import (
 
 	"codeberg.org/Elysium_Labs/themis/internal/fix"
 	"codeberg.org/Elysium_Labs/themis/internal/state"
+	"codeberg.org/Elysium_Labs/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +22,7 @@ var applyCmd = &cobra.Command{
 		snap := state.Snapshot{AppliedAt: time.Now().UTC()}
 		for _, p := range planned {
 			if p.Satisfied {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [skip]    %s — already satisfied\n", p.TestID)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.TextMuted.Render("[skip]   "), ui.TextBold.Render(p.TestID))
 				continue
 			}
 			f := fix.Registry[p.TestID]
@@ -38,17 +39,17 @@ var applyCmd = &cobra.Command{
 				return fmt.Errorf("applying %s: %w", p.TestID, err)
 			}
 			snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [applied] %s — %s\n", p.TestID, p.Description)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelSuccess.Render("[applied]"), ui.TextBold.Render(p.TestID), p.Description)
 		}
 
 		if len(snap.Entries) == 0 {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nNothing to apply — all checks already satisfied.")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s all checks already satisfied — nothing to apply\n", ui.LabelSuccess.Render("✓"))
 			return nil
 		}
 		if err := state.Save(state.DefaultPath, snap); err != nil {
 			return fmt.Errorf("saving rollback state: %w", err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nApplied %d fix(es). Rollback state saved to %s.\n", len(snap.Entries), state.DefaultPath)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), len(snap.Entries), state.DefaultPath)
 		return nil
 	},
 }

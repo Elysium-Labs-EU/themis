@@ -5,6 +5,7 @@ import (
 
 	"codeberg.org/Elysium_Labs/themis/internal/fix"
 	"codeberg.org/Elysium_Labs/themis/internal/state"
+	"codeberg.org/Elysium_Labs/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -23,19 +24,19 @@ var rollbackCmd = &cobra.Command{
 			entry := snap.Entries[i]
 			f, ok := fix.Registry[entry.TestID]
 			if !ok {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [skip]     %s — no longer registered\n", entry.TestID)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — no longer registered\n", ui.LabelWarning.Render("[skip]    "), ui.TextBold.Render(entry.TestID))
 				continue
 			}
 			if err := f.Revert(entry.RevertData); err != nil {
 				return fmt.Errorf("reverting %s: %w", entry.TestID, err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [reverted] %s\n", entry.TestID)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", ui.LabelSuccess.Render("[reverted]"), ui.TextBold.Render(entry.TestID))
 		}
 
 		if err := state.Clear(state.DefaultPath); err != nil {
 			return fmt.Errorf("clearing rollback state: %w", err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nRolled back %d fix(es).\n", len(snap.Entries))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s rolled back %d fix(es)\n", ui.LabelSuccess.Render("✓"), len(snap.Entries))
 		return nil
 	},
 }
