@@ -277,7 +277,7 @@ func normalizeSemver(v string) string {
 	return v
 }
 
-// runUpdate implements `themis update` against an explicit exePath, so it
+// runUpdate implements `themis system update` against an explicit exePath, so it
 // can be exercised in tests without touching the test binary itself
 // (os.Executable() under `go test` is the test binary).
 func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion string, includePre bool) error {
@@ -315,7 +315,7 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	if writeErr := checkWritable(filepath.Dir(exePath)); writeErr != nil {
 		return &ui.UserError{
 			Err:  fmt.Errorf("%s is not writable: %w", filepath.Dir(exePath), writeErr),
-			Hint: "sudo themis update",
+			Hint: "sudo themis system update",
 		}
 	}
 
@@ -365,7 +365,7 @@ func newUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "update",
 		Short:   "Download and install the latest themis release",
-		Example: "  themis update        # check and apply latest stable release\n  themis update --pre  # include pre-releases",
+		Example: "  themis system update        # check and apply latest stable release\n  themis system update --pre  # include pre-releases",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			exePath, err := currentBinaryPath()
 			if err != nil {
