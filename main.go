@@ -13,9 +13,9 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		var uerr *ui.UserError
 		if errors.As(err, &uerr) {
-			fmt.Fprintln(os.Stderr, uerr.Render())
+			fmt.Fprintf(os.Stderr, "%s\n\n", uerr.Render())
 		} else {
-			fmt.Fprintf(os.Stderr, "%s %s\n", ui.LabelError.Render("error"), err)
+			fmt.Fprintf(os.Stderr, "%s %s\n\n", ui.LabelError.Render("error"), err)
 		}
 		os.Exit(1)
 	}
