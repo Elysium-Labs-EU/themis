@@ -64,6 +64,8 @@ sudo themis rollback
 | `themis system version` | Print version, git commit, and build date |
 | `themis system update` | Check for and install the latest themis release |
 | `themis system uninstall` | Remove the themis binary |
+| `themis completion` | Detect your shell and interactively install tab completion |
+| `themis completion bash\|zsh\|fish` | Print the completion script for a shell to stdout |
 
 ## License
 
