@@ -54,6 +54,9 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	if err != nil {
 		return Release{}, fmt.Errorf("fetching latest release: %w", err)
 	}
+	if resp == nil {
+		return Release{}, fmt.Errorf("fetching latest release: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
@@ -109,6 +112,9 @@ func Download(ctx context.Context, downloadURL, destPath string) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", downloadURL, err)
+	}
+	if resp == nil {
+		return fmt.Errorf("downloading %s: nil response", downloadURL)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
