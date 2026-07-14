@@ -1,4 +1,4 @@
-# themis - Lynis-driven Debian hardening CLI
+# themis - Automated Debian hardening CLI
 
 [![Codeberg](https://img.shields.io/badge/Codeberg-themis-blue?logo=codeberg)](https://codeberg.org/Elysium_Labs/themis)
 
