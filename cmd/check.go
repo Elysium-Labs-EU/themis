@@ -5,11 +5,18 @@ import (
 	"io"
 	"strings"
 
+	"codeberg.org/Elysium_Labs/themis/internal/audit"
 	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
 	"codeberg.org/Elysium_Labs/themis/internal/lynis"
 	"codeberg.org/Elysium_Labs/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// sources lists every audit source themis runs when auditing the system
+// (themis check, themis api check).
+func sources() []audit.Source {
+	return []audit.Source{lynis.NewSource()}
+}
 
 func newCheckCmd() *cobra.Command {
 	var showAll bool
@@ -18,10 +25,10 @@ func newCheckCmd() *cobra.Command {
 		Use:   "check",
 		Short: "Run a Lynis audit and list actionable findings",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var findings []lynis.Finding
+			var findings []audit.Finding
 			err := ui.WithSpinner("Running lynis audit...", func() error {
 				var err error
-				findings, err = lynis.Audit(cmd.Context())
+				findings, err = audit.Run(cmd.Context(), sources())
 				return err
 			})
 			if err != nil {

@@ -3,11 +3,11 @@ package checkreport
 import (
 	"testing"
 
-	"codeberg.org/Elysium_Labs/themis/internal/lynis"
+	"codeberg.org/Elysium_Labs/themis/internal/audit"
 )
 
 func TestBuildMarksFixTrackedFindingsActionable(t *testing.T) {
-	findings := []lynis.Finding{
+	findings := []audit.Finding{
 		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-"},
 	}
 	fixes := []Fix{
@@ -32,7 +32,7 @@ func TestBuildMarksFixTrackedFindingsActionable(t *testing.T) {
 }
 
 func TestBuildMarksSolutionOnlyFindingsActionable(t *testing.T) {
-	findings := []lynis.Finding{
+	findings := []audit.Finding{
 		{TestID: "FILE-7524", Kind: "suggestion", Description: "restrict permissions", Solution: "chmod ..."},
 	}
 
@@ -44,7 +44,7 @@ func TestBuildMarksSolutionOnlyFindingsActionable(t *testing.T) {
 }
 
 func TestBuildMarksWarningsActionableEvenWithoutSolution(t *testing.T) {
-	findings := []lynis.Finding{
+	findings := []audit.Finding{
 		{TestID: "KRNL-5830", Kind: "warning", Description: "reboot needed", Solution: "-"},
 	}
 
@@ -56,7 +56,7 @@ func TestBuildMarksWarningsActionableEvenWithoutSolution(t *testing.T) {
 }
 
 func TestBuildHidesPlainSuggestionsWithNoFixOrSolution(t *testing.T) {
-	findings := []lynis.Finding{
+	findings := []audit.Finding{
 		{TestID: "BANN-7126", Kind: "suggestion", Description: "add banner", Solution: "-"},
 	}
 
@@ -84,6 +84,23 @@ func TestBuildCollectsUnmatchedFixesAsNative(t *testing.T) {
 	}
 	if len(report.Native) != 1 || report.Native[0].TestID != "THEMIS-FAIL2BAN" {
 		t.Fatalf("expected the unmatched fix to be reported as native, got %+v", report.Native)
+	}
+}
+
+func TestBuildDedupesFindingsReportedByMultipleSources(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-", Source: "lynis"},
+		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-", Source: "openscap"},
+	}
+
+	report := Build(findings, nil)
+
+	if len(report.Findings) != 1 {
+		t.Fatalf("expected duplicate findings to collapse into 1, got %d", len(report.Findings))
+	}
+	sources := report.Findings[0].Sources
+	if len(sources) != 2 || sources[0] != "lynis" || sources[1] != "openscap" {
+		t.Fatalf("expected both sources recorded, got %+v", sources)
 	}
 }
 
