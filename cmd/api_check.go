@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"codeberg.org/Elysium_Labs/themis/internal/audit"
 	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
-	"codeberg.org/Elysium_Labs/themis/internal/lynis"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +17,7 @@ type apiFinding struct {
 	Kind        string   `json:"kind"`
 	Description string   `json:"description"`
 	Solution    string   `json:"solution"`
+	Sources     []string `json:"sources"`
 	Fixes       []apiFix `json:"fixes"`
 	Actionable  bool     `json:"actionable"`
 }
@@ -43,6 +44,7 @@ Output schema (stdout, JSON):
         "kind":        string  -- "suggestion" or "warning"
         "description": string
         "solution":    string  -- Lynis's own remediation hint, "-" if none
+        "sources":     []string -- audit source(s) that reported this finding, e.g. ["lynis"]
         "actionable":  bool    -- false if no themis fix, no solution, and not a warning
         "fixes": [
           { "test_id": string, "description": string, "satisfied": bool }
@@ -67,7 +69,7 @@ Exit codes:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		findings, err := lynis.Audit(cmd.Context())
+		findings, err := audit.Run(cmd.Context(), sources())
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}
@@ -91,6 +93,7 @@ Exit codes:
 				Kind:        f.Kind,
 				Description: f.Description,
 				Solution:    f.Solution,
+				Sources:     f.Sources,
 				Actionable:  f.Actionable,
 				Fixes:       fs,
 			})
