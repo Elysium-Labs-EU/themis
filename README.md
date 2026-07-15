@@ -69,4 +69,4 @@ sudo themis rollback
 
 ## License
 
-License not yet finalized for this repository.
+Apache License 2.0 - see [LICENSE](LICENSE).
