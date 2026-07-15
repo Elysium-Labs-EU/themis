@@ -9,6 +9,12 @@ type Fix struct {
 	Check  func() (satisfied bool, err error)
 	Apply  func() (revertData []byte, err error)
 	Revert func(revertData []byte) error
+	// Warn, if set, is checked by `apply` before Apply runs. It reports a
+	// situation this fix can't safely reason about on its own (e.g. another
+	// tool already managing the same surface) so the fix is skipped and the
+	// message shown instead of applied outright. A caller can still force
+	// the apply through once they've reviewed it.
+	Warn   func() (message string, detected bool, err error)
 	TestID string
 	// LynisID is the raw Lynis test ID this fix addresses, when it
 	// differs from TestID (e.g. one Lynis finding split across several
@@ -18,7 +24,7 @@ type Fix struct {
 }
 
 // LynisTestID returns the raw Lynis test ID this fix addresses.
-func (f Fix) LynisTestID() string {
+func (f Fix) LynisTestID() string { //nolint:gocritic // value receiver kept so map-index call sites (e.g. Registry[id].LynisTestID()) stay addressable
 	if f.LynisID != "" {
 		return f.LynisID
 	}

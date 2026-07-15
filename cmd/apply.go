@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var applyForce bool
+
 var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply all unsatisfied registered fixes and save rollback state",
@@ -26,6 +28,17 @@ var applyCmd = &cobra.Command{
 				continue
 			}
 			f := fix.Registry[p.TestID]
+			if f.Warn != nil {
+				msg, detected, warnErr := f.Warn()
+				if warnErr != nil {
+					return fmt.Errorf("checking %s for warnings: %w", p.TestID, warnErr)
+				}
+				if detected && !applyForce {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelWarning.Render("[warn]   "), ui.TextBold.Render(p.TestID), msg)
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "           %s\n", ui.TextMuted.Render("skipped — review and rerun with --force to apply anyway"))
+					continue
+				}
+			}
 			revertData, err := f.Apply()
 			if err != nil {
 				// Save state for whatever already succeeded so a
@@ -52,4 +65,8 @@ var applyCmd = &cobra.Command{
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), len(snap.Entries), state.DefaultPath)
 		return nil
 	},
+}
+
+func init() {
+	applyCmd.Flags().BoolVar(&applyForce, "force", false, "apply fixes even if they report a warning")
 }

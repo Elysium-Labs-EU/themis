@@ -3,10 +3,18 @@ package fix
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
 
 const fail2banJailLocalPath = "/etc/fail2ban/jail.local"
+
+// banactionMultiport scopes a ban to the jail's own port (e.g. sshd's port
+// 22) instead of the whole offending IP. Without this pin, a distro's
+// default banaction — or an iptables-allports override elsewhere in the
+// fail2ban config — can collaterally block unrelated services (e.g. a VPN)
+// that happen to share the banned IP.
+const banactionMultiport = "iptables-multiport"
 
 type fail2banState struct {
 	PrevConfig    []byte `json:"prev_config"`
@@ -20,6 +28,7 @@ func fail2banFix() Fix {
 	return Fix{
 		TestID:      "THEMIS-FAIL2BAN",
 		Description: "install and enable fail2ban with an sshd jail",
+		Warn:        fail2banWarn,
 		Check: func() (bool, error) {
 			if err := runCmd("systemctl", "is-active", "--quiet", "fail2ban"); err != nil {
 				return false, nil //nolint:nilerr // service not active means the check is simply unsatisfied
@@ -28,7 +37,7 @@ func fail2banFix() Fix {
 			if err != nil {
 				return false, err
 			}
-			return existed && sshdJailEnabled(string(content)), nil
+			return existed && sshdJailEnabled(string(content)) && sshdBanactionScoped(string(content)), nil
 		},
 		Apply: func() ([]byte, error) {
 			wasInstalled := packageInstalled("fail2ban")
@@ -76,35 +85,154 @@ func fail2banFix() Fix {
 	}
 }
 
-// sshdJailEnabled reports whether jail.local has "enabled = true" inside
-// its [sshd] section. Pure — no I/O.
-func sshdJailEnabled(content string) bool {
-	inSSHD := false
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inSSHD = trimmed == "[sshd]"
-			continue
-		}
-		if inSSHD && trimmed == "enabled = true" {
+// fail2banWarn flags hosts where pinning banaction ourselves may not be the
+// right call. A WireGuard endpoint often routes many distinct users behind
+// one shared tunnel IP, so a port-scoped ban can still be too coarse for
+// that traffic. CrowdSec manages its own bans through the same
+// iptables/nftables surface fail2ban does, so two ban managers touching
+// overlapping rules can conflict in ways themis has no visibility into.
+// Rather than silently rewrite banaction either way, surface what was found
+// and let the operator decide.
+func fail2banWarn() (string, bool, error) {
+	msg, detected := fail2banWarnMessage(wireguardConfigured(), crowdsecActive())
+	return msg, detected, nil
+}
+
+// fail2banWarnMessage builds the advisory message from what was detected.
+// Pure — no I/O — so the wording/joining logic is testable without faking
+// systemctl or the filesystem.
+func fail2banWarnMessage(hasWireguard, hasCrowdsec bool) (string, bool) {
+	var found []string
+	if hasWireguard {
+		found = append(found, "a WireGuard config")
+	}
+	if hasCrowdsec {
+		found = append(found, "CrowdSec")
+	}
+	if len(found) == 0 {
+		return "", false
+	}
+	msg := fmt.Sprintf(
+		"detected %s on this host — pinning fail2ban's [sshd] banaction to %s changes how it bans IPs; review whether that fits your setup, then rerun apply with --force once you have",
+		strings.Join(found, " and "), banactionMultiport,
+	)
+	return msg, true
+}
+
+// wireguardConfigured reports whether any WireGuard interface config is
+// present, regardless of whether the interface is currently up.
+func wireguardConfigured() bool {
+	entries, err := os.ReadDir("/etc/wireguard")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".conf") {
 			return true
 		}
 	}
 	return false
 }
 
-// ensureSSHDJail appends a "[sshd]" section enabled against the systemd
-// journal if the jail isn't already enabled. backend = systemd is used
-// instead of the default logpath because Debian 12+ has no
-// /var/log/auth.log without rsyslog installed — sshd logs to the
-// journal only, and fail2ban refuses to start if its configured logpath
-// doesn't exist. Pure — no I/O.
+// crowdsecActive reports whether CrowdSec or its firewall bouncer is
+// running — either can already be managing bans on this host.
+func crowdsecActive() bool {
+	return runCmd("systemctl", "is-active", "--quiet", "crowdsec") == nil ||
+		runCmd("systemctl", "is-active", "--quiet", "crowdsec-firewall-bouncer") == nil
+}
+
+// sshdJailEnabled reports whether jail.local has "enabled = true" inside
+// its [sshd] section. Pure — no I/O.
+func sshdJailEnabled(content string) bool {
+	return sectionHasKeyValue(content, "sshd", "enabled", "true")
+}
+
+// sshdBanactionScoped reports whether jail.local pins the [sshd] section's
+// banaction to iptables-multiport, so a ban only blocks the jail's port
+// rather than the whole IP. Pure — no I/O.
+func sshdBanactionScoped(content string) bool {
+	return sectionHasKeyValue(content, "sshd", "banaction", banactionMultiport)
+}
+
+// sectionHasKeyValue reports whether "key = value" appears verbatim inside
+// the named INI section. Pure — no I/O.
+func sectionHasKeyValue(content, section, key, value string) bool {
+	inSection := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inSection = trimmed == "["+section+"]"
+			continue
+		}
+		if inSection && trimmed == key+" = "+value {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureSSHDJail makes sure jail.local has a [sshd] section that is enabled
+// and pins banaction to iptables-multiport, creating or patching the
+// section as needed. backend = systemd is used instead of the default
+// logpath because Debian 12+ has no /var/log/auth.log without rsyslog
+// installed — sshd logs to the journal only, and fail2ban refuses to start
+// if its configured logpath doesn't exist. Pure — no I/O.
 func ensureSSHDJail(content string) string {
-	if sshdJailEnabled(content) {
-		return content
+	if !hasSection(content, "sshd") {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		return content + "\n[sshd]\nenabled = true\nbackend = systemd\nbanaction = " + banactionMultiport + "\n"
 	}
-	if content != "" && !strings.HasSuffix(content, "\n") {
-		content += "\n"
+	content = setSectionKey(content, "sshd", "enabled", "true")
+	return setSectionKey(content, "sshd", "banaction", banactionMultiport)
+}
+
+// hasSection reports whether content contains a "[section]" header.
+func hasSection(content, section string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "["+section+"]" {
+			return true
+		}
 	}
-	return content + "\n[sshd]\nenabled = true\nbackend = systemd\n"
+	return false
+}
+
+// setSectionKey ensures "key = value" appears exactly once within the named
+// section, updating an existing "key = ..." line in place or appending one
+// at the end of the section if absent. Assumes the section already exists.
+func setSectionKey(content, section, key, value string) string {
+	lines := strings.Split(content, "\n")
+	target := key + " = " + value
+	inSection := false
+	sectionEnd := -1
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			if inSection && sectionEnd == -1 {
+				sectionEnd = i
+			}
+			inSection = trimmed == "["+section+"]"
+			continue
+		}
+		if inSection {
+			sectionEnd = i + 1
+			if strings.HasPrefix(trimmed, key+" =") {
+				lines[i] = target
+				found = true
+			}
+		}
+	}
+	if found {
+		return strings.Join(lines, "\n")
+	}
+	if sectionEnd == -1 {
+		sectionEnd = len(lines)
+	}
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, lines[:sectionEnd]...)
+	out = append(out, target)
+	out = append(out, lines[sectionEnd:]...)
+	return strings.Join(out, "\n")
 }
