@@ -69,7 +69,8 @@ Exit codes:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		findings, err := audit.Run(cmd.Context(), sources())
+		quick, _ := cmd.Flags().GetBool("quick")
+		findings, err := audit.Run(cmd.Context(), sources(quick))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}

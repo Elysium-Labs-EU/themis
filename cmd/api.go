@@ -36,5 +36,6 @@ var apiCmd = &cobra.Command{
 }
 
 func init() {
+	apiCheckCmd.Flags().Bool("quick", false, "run lynis's lighter --quick profile instead of a full audit")
 	apiCmd.AddCommand(apiCheckCmd)
 }
