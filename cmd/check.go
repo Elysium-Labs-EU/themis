@@ -8,6 +8,7 @@ import (
 	"codeberg.org/Elysium_Labs/themis/internal/audit"
 	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
 	"codeberg.org/Elysium_Labs/themis/internal/lynis"
+	"codeberg.org/Elysium_Labs/themis/internal/native"
 	"codeberg.org/Elysium_Labs/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -16,7 +17,7 @@ import (
 // (themis check, themis api check). quick, when true, runs lynis with its
 // lighter --quick profile instead of a full audit.
 func sources(quick bool) []audit.Source {
-	return []audit.Source{lynis.NewSource(lynis.Options{Quick: quick})}
+	return []audit.Source{lynis.NewSource(lynis.Options{Quick: quick}), native.NewSource()}
 }
 
 func newCheckCmd() *cobra.Command {
@@ -25,10 +26,10 @@ func newCheckCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "check",
-		Short: "Run a Lynis audit and list actionable findings",
+		Short: "Run an audit and list actionable findings",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var findings []audit.Finding
-			err := ui.WithSpinner("Running lynis audit...", func() error {
+			err := ui.WithSpinner("Running audit...", func() error {
 				var err error
 				findings, err = audit.Run(cmd.Context(), sources(quick))
 				return err
@@ -46,7 +47,7 @@ func newCheckCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no Lynis solution hint")
+	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no source solution hint")
 	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
 	return cmd
 }
@@ -73,7 +74,7 @@ func printFindingBlock(out io.Writer, f *checkreport.Finding) {
 	_, _ = fmt.Fprintf(out, "%s %s\n", ui.TextBold.Render(f.TestID), kind)
 	_, _ = fmt.Fprintf(out, "  %s\n", f.Description)
 	if f.Solution != "" && f.Solution != "-" {
-		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("lynis solution:"), f.Solution)
+		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("solution:"), f.Solution)
 	}
 	if len(f.Fixes) > 0 {
 		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("themis fix:"), fixSummary(f.Fixes))
@@ -93,7 +94,7 @@ func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll boo
 		shown = append(shown, f)
 	}
 
-	_, _ = fmt.Fprintf(out, "%s Lynis reported %d finding(s)\n\n", ui.LabelInfo.Render("i"), len(report.Findings))
+	_, _ = fmt.Fprintf(out, "%s audit reported %d finding(s)\n\n", ui.LabelInfo.Render("i"), len(report.Findings))
 
 	for i := range shown {
 		if i > 0 {
@@ -103,7 +104,7 @@ func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll boo
 	}
 
 	if len(deemphasized) > 0 {
-		_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no Lynis solution):\n",
+		_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no solution hint):\n",
 			ui.TextMuted.Render("i"), len(deemphasized))
 		for _, f := range deemphasized {
 			_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(f.TestID+" — "+f.Description))
@@ -112,7 +113,7 @@ func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll boo
 	}
 
 	if len(report.Native) > 0 {
-		_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no Lynis finding to match):"))
+		_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no matching finding):"))
 		for _, f := range report.Native {
 			status := ui.LabelSuccess.Render("✓ satisfied")
 			if !f.Satisfied {

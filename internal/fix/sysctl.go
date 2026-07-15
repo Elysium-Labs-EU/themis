@@ -30,14 +30,14 @@ func sysctlFixAt(path string, reload func() error) Fix {
 		TestID:      "KRNL-6000",
 		Description: "harden kernel network parameters via a sysctl drop-in file",
 		Check: func() (bool, error) {
-			content, existed, err := readFileOrEmpty(path)
+			content, existed, err := ReadFileOrEmpty(path)
 			if err != nil {
 				return false, err
 			}
 			return existed && string(content) == desired, nil
 		},
 		Apply: func() ([]byte, error) {
-			original, existed, err := readFileOrEmpty(path)
+			original, existed, err := ReadFileOrEmpty(path)
 			if err != nil {
 				return nil, err
 			}
