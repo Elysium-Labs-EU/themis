@@ -4,17 +4,17 @@ import "testing"
 
 func TestDirectiveValue(t *testing.T) {
 	content := "Port 22\n#PermitRootLogin no\nPermitRootLogin yes\n"
-	if got := directiveValue(content, "PermitRootLogin"); got != "yes" {
+	if got := DirectiveValue(content, "PermitRootLogin"); got != "yes" {
 		t.Errorf("got %q, want %q", got, "yes")
 	}
-	if got := directiveValue(content, "PasswordAuthentication"); got != "" {
+	if got := DirectiveValue(content, "PasswordAuthentication"); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
 }
 
 func TestDirectiveValueLastWins(t *testing.T) {
 	content := "PermitRootLogin yes\nPermitRootLogin no\n"
-	if got := directiveValue(content, "PermitRootLogin"); got != "no" {
+	if got := DirectiveValue(content, "PermitRootLogin"); got != "no" {
 		t.Errorf("got %q, want %q", got, "no")
 	}
 }
@@ -30,7 +30,7 @@ func TestSetDirectiveAppendsWhenMissing(t *testing.T) {
 func TestSetDirectiveNoopWhenAlreadyCorrect(t *testing.T) {
 	content := "Port 22\nPermitRootLogin no\n"
 	got := setDirective(content, "PermitRootLogin", "no")
-	if directiveValue(got, "PermitRootLogin") != "no" {
+	if DirectiveValue(got, "PermitRootLogin") != "no" {
 		t.Errorf("expected PermitRootLogin no to remain effective, got %q", got)
 	}
 }
@@ -38,7 +38,7 @@ func TestSetDirectiveNoopWhenAlreadyCorrect(t *testing.T) {
 func TestSetDirectiveCommentsOutConflicting(t *testing.T) {
 	content := "PermitRootLogin yes\n"
 	got := setDirective(content, "PermitRootLogin", "no")
-	if directiveValue(got, "PermitRootLogin") != "no" {
+	if DirectiveValue(got, "PermitRootLogin") != "no" {
 		t.Errorf("expected PermitRootLogin no to be effective, got %q", got)
 	}
 	if got == content {

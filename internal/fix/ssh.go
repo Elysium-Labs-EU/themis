@@ -52,7 +52,7 @@ func sshPasswordAuthFixWith(path string, reload func() error, homeDirs func() ([
 // there is no fallback short of console access.
 func authorizedKeysExist(homes []string) (bool, error) {
 	for _, home := range homes {
-		content, existed, err := readFileOrEmpty(filepath.Join(home, ".ssh", "authorized_keys"))
+		content, existed, err := ReadFileOrEmpty(filepath.Join(home, ".ssh", "authorized_keys"))
 		if err != nil {
 			return false, err
 		}
@@ -106,14 +106,14 @@ func sshDisableDirectiveFixAt(testID, description, path string, reload func() er
 		TestID:      testID,
 		Description: description,
 		Check: func() (bool, error) {
-			content, _, err := readFileOrEmpty(path)
+			content, _, err := ReadFileOrEmpty(path)
 			if err != nil {
 				return false, err
 			}
-			return directiveValue(string(content), key) == value, nil
+			return DirectiveValue(string(content), key) == value, nil
 		},
 		Apply: func() ([]byte, error) {
-			original, _, err := readFileOrEmpty(path)
+			original, _, err := ReadFileOrEmpty(path)
 			if err != nil {
 				return nil, err
 			}

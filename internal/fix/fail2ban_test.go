@@ -19,8 +19,8 @@ func TestSSHDJailEnabled(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sshdJailEnabled(tc.content); got != tc.want {
-				t.Errorf("sshdJailEnabled(%q) = %v, want %v", tc.content, got, tc.want)
+			if got := SSHDJailEnabled(tc.content); got != tc.want {
+				t.Errorf("SSHDJailEnabled(%q) = %v, want %v", tc.content, got, tc.want)
 			}
 		})
 	}
@@ -40,8 +40,8 @@ func TestSSHDBanactionScoped(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sshdBanactionScoped(tc.content); got != tc.want {
-				t.Errorf("sshdBanactionScoped(%q) = %v, want %v", tc.content, got, tc.want)
+			if got := SSHDBanactionScoped(tc.content); got != tc.want {
+				t.Errorf("SSHDBanactionScoped(%q) = %v, want %v", tc.content, got, tc.want)
 			}
 		})
 	}
@@ -79,10 +79,10 @@ func TestFail2banWarnMessage(t *testing.T) {
 
 func TestEnsureSSHDJail(t *testing.T) {
 	got := ensureSSHDJail("")
-	if !sshdJailEnabled(got) {
+	if !SSHDJailEnabled(got) {
 		t.Errorf("expected sshd jail enabled after ensureSSHDJail, got %q", got)
 	}
-	if !sshdBanactionScoped(got) {
+	if !SSHDBanactionScoped(got) {
 		t.Errorf("expected banaction pinned to multiport after ensureSSHDJail, got %q", got)
 	}
 
@@ -94,7 +94,7 @@ func TestEnsureSSHDJail(t *testing.T) {
 	// enabled but missing banaction: must patch in place, not duplicate the section.
 	partial := "[sshd]\nenabled = true\n"
 	got = ensureSSHDJail(partial)
-	if !sshdBanactionScoped(got) {
+	if !SSHDBanactionScoped(got) {
 		t.Errorf("expected banaction to be added to existing [sshd] section, got %q", got)
 	}
 	if strings.Count(got, "[sshd]") != 1 {
@@ -104,7 +104,7 @@ func TestEnsureSSHDJail(t *testing.T) {
 	// wrong banaction value: must be corrected in place, not appended as a duplicate line.
 	wrong := "[sshd]\nenabled = true\nbanaction = iptables-allports\nport = ssh\n"
 	got = ensureSSHDJail(wrong)
-	if !sshdBanactionScoped(got) {
+	if !SSHDBanactionScoped(got) {
 		t.Errorf("expected banaction to be corrected to multiport, got %q", got)
 	}
 	if strings.Count(got, "banaction") != 1 {
@@ -117,7 +117,7 @@ func TestEnsureSSHDJail(t *testing.T) {
 	// [sshd] followed by another section: patch must insert before it, not inside it.
 	beforeNext := "[sshd]\nenabled = true\n[apache]\nenabled = true\n"
 	got = ensureSSHDJail(beforeNext)
-	if !sshdBanactionScoped(got) {
+	if !SSHDBanactionScoped(got) {
 		t.Errorf("expected banaction added to [sshd], got %q", got)
 	}
 	if sectionHasKeyValue(got, "apache", "banaction", banactionMultiport) {

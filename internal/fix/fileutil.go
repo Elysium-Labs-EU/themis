@@ -9,11 +9,12 @@ import (
 	"strings"
 )
 
-// readFileOrEmpty reads path, reporting whether it existed. A missing
+// ReadFileOrEmpty reads path, reporting whether it existed. A missing
 // file is not an error — callers treat "didn't exist" as meaningful
 // revert state (Revert should remove the file, not restore empty
-// content).
-func readFileOrEmpty(path string) (content []byte, existed bool, err error) {
+// content). Exported for internal/native, which reads the same config
+// files for its findings.
+func ReadFileOrEmpty(path string) (content []byte, existed bool, err error) {
 	b, err := os.ReadFile(path) //nolint:gosec // path is always one of our fixed config-file constants, not user input
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

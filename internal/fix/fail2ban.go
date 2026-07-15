@@ -33,11 +33,11 @@ func fail2banFix() Fix {
 			if err := runCmd("systemctl", "is-active", "--quiet", "fail2ban"); err != nil {
 				return false, nil //nolint:nilerr // service not active means the check is simply unsatisfied
 			}
-			content, existed, err := readFileOrEmpty(fail2banJailLocalPath)
+			content, existed, err := ReadFileOrEmpty(fail2banJailLocalPath)
 			if err != nil {
 				return false, err
 			}
-			return existed && sshdJailEnabled(string(content)) && sshdBanactionScoped(string(content)), nil
+			return existed && SSHDJailEnabled(string(content)) && SSHDBanactionScoped(string(content)), nil
 		},
 		Apply: func() ([]byte, error) {
 			wasInstalled := packageInstalled("fail2ban")
@@ -46,7 +46,7 @@ func fail2banFix() Fix {
 					return nil, err
 				}
 			}
-			original, existed, err := readFileOrEmpty(fail2banJailLocalPath)
+			original, existed, err := ReadFileOrEmpty(fail2banJailLocalPath)
 			if err != nil {
 				return nil, err
 			}
@@ -141,16 +141,18 @@ func crowdsecActive() bool {
 		runCmd("systemctl", "is-active", "--quiet", "crowdsec-firewall-bouncer") == nil
 }
 
-// sshdJailEnabled reports whether jail.local has "enabled = true" inside
-// its [sshd] section. Pure — no I/O.
-func sshdJailEnabled(content string) bool {
+// SSHDJailEnabled reports whether jail.local has "enabled = true" inside
+// its [sshd] section. Pure — no I/O. Exported for internal/native, which
+// checks the same config for the THEMIS-FAIL2BAN finding.
+func SSHDJailEnabled(content string) bool {
 	return sectionHasKeyValue(content, "sshd", "enabled", "true")
 }
 
-// sshdBanactionScoped reports whether jail.local pins the [sshd] section's
+// SSHDBanactionScoped reports whether jail.local pins the [sshd] section's
 // banaction to iptables-multiport, so a ban only blocks the jail's port
-// rather than the whole IP. Pure — no I/O.
-func sshdBanactionScoped(content string) bool {
+// rather than the whole IP. Pure — no I/O. Exported for internal/native,
+// which checks the same config for the THEMIS-FAIL2BAN finding.
+func SSHDBanactionScoped(content string) bool {
 	return sectionHasKeyValue(content, "sshd", "banaction", banactionMultiport)
 }
 

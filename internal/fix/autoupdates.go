@@ -21,14 +21,14 @@ func autoUpdatesFix() Fix {
 			if !packageInstalled("unattended-upgrades") {
 				return false, nil
 			}
-			content, existed, err := readFileOrEmpty(autoUpgradesConfigPath)
+			content, existed, err := ReadFileOrEmpty(autoUpgradesConfigPath)
 			if err != nil {
 				return false, err
 			}
 			if !existed {
 				return false, nil
 			}
-			return directiveValue(string(content), "APT::Periodic::Unattended-Upgrade") == `"1";`, nil
+			return DirectiveValue(string(content), "APT::Periodic::Unattended-Upgrade") == `"1";`, nil
 		},
 		Apply: func() ([]byte, error) {
 			wasInstalled := packageInstalled("unattended-upgrades")
@@ -37,7 +37,7 @@ func autoUpdatesFix() Fix {
 					return nil, err
 				}
 			}
-			original, existed, err := readFileOrEmpty(autoUpgradesConfigPath)
+			original, existed, err := ReadFileOrEmpty(autoUpgradesConfigPath)
 			if err != nil {
 				return nil, err
 			}

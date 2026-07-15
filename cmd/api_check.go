@@ -29,21 +29,21 @@ type apiCheckResult struct {
 
 var apiCheckCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Run a Lynis audit and return findings merged with themis fixes as JSON",
-	Long: `Run a Lynis audit and return every finding merged with any themis fix
-that tracks it, plus themis-native fixes that have no Lynis equivalent.
-Unlike ` + "`themis check`" + `, nothing is filtered — the "actionable" field marks
-findings that are noise (no themis fix, no Lynis solution, not a warning)
-versus ones worth acting on.
+	Short: "Run an audit and return findings merged with themis fixes as JSON",
+	Long: `Run every audit source (Lynis, themis-native checks) and return each
+finding merged with any themis fix that tracks it, plus themis fixes that
+have no matching finding. Unlike ` + "`themis check`" + `, nothing is filtered — the
+"actionable" field marks findings that are noise (no themis fix, no
+solution hint, not a warning) versus ones worth acting on.
 
 Output schema (stdout, JSON):
   {
     "findings": [
       {
-        "test_id":     string  -- Lynis test ID
+        "test_id":     string  -- source test ID (Lynis, or THEMIS-* for native checks)
         "kind":        string  -- "suggestion" or "warning"
         "description": string
-        "solution":    string  -- Lynis's own remediation hint, "-" if none
+        "solution":    string  -- the source's own remediation hint, "-" if none
         "sources":     []string -- audit source(s) that reported this finding, e.g. ["lynis"]
         "actionable":  bool    -- false if no themis fix, no solution, and not a warning
         "fixes": [

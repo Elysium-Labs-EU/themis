@@ -2,11 +2,11 @@
 
 [![Codeberg](https://img.shields.io/badge/Codeberg-themis-blue?logo=codeberg)](https://codeberg.org/Elysium_Labs/themis)
 
-themis wraps [Lynis](https://cisofy.com/lynis/)'s audit findings with a check/plan/apply/rollback workflow. It reads Lynis's report, maps flagged findings to concrete fixes, and applies them idempotently with rollback metadata.
+themis merges findings from pluggable audit sources ([Lynis](https://cisofy.com/lynis/), plus themis-native checks) with a check/plan/apply/rollback workflow. It maps flagged findings to concrete fixes and applies them idempotently with rollback metadata.
 
 ## Features
 
-* **Actionable findings only** by default, findings with no themis fix and no Lynis solution hint print de-emphasized instead of a full table row; `--all` promotes them back.
+* **Actionable findings only** by default, findings with no themis fix and no solution hint print de-emphasized instead of a full table row; `--all` promotes them back.
 * **Idempotent fixes**, each registered fix knows how to detect its own satisfied state before applying anything.
 * **Rollback metadata** saved automatically on every `apply`, so a bad hardening run can be undone with one command.
 * **Machine-readable output** via `themis api check`, for scripting or CI gates.
@@ -38,7 +38,7 @@ Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for
 ## Quick Start
 
 ```bash
-# Run a Lynis audit and list actionable findings
+# Run an audit and list actionable findings
 sudo themis check
 
 # Show which registered fixes would be applied
@@ -55,12 +55,12 @@ sudo themis rollback
 
 | Command | Description |
 |---------|-------------|
-| `themis check` | Run a Lynis audit and list actionable findings |
-| `themis check --all` | Also show findings with no themis fix and no Lynis solution hint |
+| `themis check` | Run an audit and list actionable findings |
+| `themis check --all` | Also show findings with no themis fix and no solution hint |
 | `themis plan` | Show which registered fixes would be applied |
 | `themis apply` | Apply all unsatisfied registered fixes and save rollback state |
 | `themis rollback` | Revert the fixes applied by the last `apply` |
-| `themis api check` | Return Lynis findings merged with themis fixes as JSON |
+| `themis api check` | Return audit findings merged with themis fixes as JSON |
 | `themis system version` | Print version, git commit, and build date |
 | `themis system update` | Check for and install the latest themis release |
 | `themis system uninstall` | Remove the themis binary |

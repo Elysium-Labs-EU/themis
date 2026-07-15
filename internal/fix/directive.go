@@ -34,9 +34,10 @@ func setDirective(content, key, value string) string {
 	return strings.Join(out, "\n")
 }
 
-// directiveValue returns the last effective (uncommented) value for key,
-// or "" if it is never set. Pure — no I/O.
-func directiveValue(content, key string) string {
+// DirectiveValue returns the last effective (uncommented) value for key,
+// or "" if it is never set. Pure — no I/O. Exported for internal/native,
+// which parses the same "Key Value" config style for its findings.
+func DirectiveValue(content, key string) string {
 	value := ""
 	for _, line := range strings.Split(content, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
