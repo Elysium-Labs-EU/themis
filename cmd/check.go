@@ -13,13 +13,15 @@ import (
 )
 
 // sources lists every audit source themis runs when auditing the system
-// (themis check, themis api check).
-func sources() []audit.Source {
-	return []audit.Source{lynis.NewSource()}
+// (themis check, themis api check). quick, when true, runs lynis with its
+// lighter --quick profile instead of a full audit.
+func sources(quick bool) []audit.Source {
+	return []audit.Source{lynis.NewSource(lynis.Options{Quick: quick})}
 }
 
 func newCheckCmd() *cobra.Command {
 	var showAll bool
+	var quick bool
 
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -28,7 +30,7 @@ func newCheckCmd() *cobra.Command {
 			var findings []audit.Finding
 			err := ui.WithSpinner("Running lynis audit...", func() error {
 				var err error
-				findings, err = audit.Run(cmd.Context(), sources())
+				findings, err = audit.Run(cmd.Context(), sources(quick))
 				return err
 			})
 			if err != nil {
@@ -45,6 +47,7 @@ func newCheckCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no Lynis solution hint")
+	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
 	return cmd
 }
 

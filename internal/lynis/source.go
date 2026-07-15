@@ -7,18 +7,21 @@ import (
 )
 
 // Source runs Lynis as a pluggable audit.Source.
-type Source struct{}
+type Source struct {
+	opts Options
+}
 
-// NewSource returns a Lynis audit.Source.
-func NewSource() Source { return Source{} }
+// NewSource returns a Lynis audit.Source. opts.Quick controls whether the
+// scan uses lynis's lighter --quick profile or a full audit (default).
+func NewSource(opts Options) Source { return Source{opts: opts} }
 
 // Name identifies this source as "lynis".
 func (Source) Name() string { return "lynis" }
 
 // Run audits the system with Lynis and returns its findings as
 // audit.Finding.
-func (Source) Run(ctx context.Context) ([]audit.Finding, error) {
-	findings, err := Audit(ctx)
+func (s Source) Run(ctx context.Context) ([]audit.Finding, error) {
+	findings, err := Audit(ctx, s.opts)
 	if err != nil {
 		return nil, err
 	}

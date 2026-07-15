@@ -46,9 +46,43 @@ func lynisPathWith(lookPath func(string) (string, error), exists func(string) bo
 	return "", exec.ErrNotFound
 }
 
+// Options configures how Audit runs lynis.
+type Options struct {
+	// Quick runs lynis's own --quick profile, which skips some tests in
+	// exchange for a faster, lighter scan. Default (false) is a full
+	// audit.
+	Quick bool
+}
+
+// lynisArgs builds the `lynis audit system` argument list for the given
+// options. Pure — no I/O.
+func lynisArgs(opts Options) []string {
+	args := []string{"audit", "system", "--quiet"}
+	if opts.Quick {
+		args = append(args, "--quick")
+	}
+	return args
+}
+
+// priorityWrap prefixes bin/args with ionice and/or nice, when present on
+// PATH, so a full audit doesn't starve other work on resource-constrained
+// or stateful hosts. It doesn't reduce total CPU time, only priority.
+// Falls back to running bin directly if neither tool is found (e.g.
+// ionice doesn't exist on macOS). Pure given lookPath — no I/O itself.
+func priorityWrap(lookPath func(string) (string, error), bin string, args []string) (string, []string) {
+	cmdArgs := append([]string{bin}, args...)
+	if p, err := lookPath("nice"); err == nil {
+		cmdArgs = append([]string{p, "-n", "19"}, cmdArgs...)
+	}
+	if p, err := lookPath("ionice"); err == nil {
+		cmdArgs = append([]string{p, "-c3"}, cmdArgs...)
+	}
+	return cmdArgs[0], cmdArgs[1:]
+}
+
 // Audit runs `lynis audit system` and returns the parsed findings from
 // the report it writes to ReportPath.
-func Audit(ctx context.Context) ([]Finding, error) {
+func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 	// lynis audit system needs root to run its full scan and to write
 	// ReportPath (often owned root:root from a prior run either way).
 	// Check euid before paying for the multi-minute scan, rather than
@@ -69,7 +103,8 @@ func Audit(ctx context.Context) ([]Finding, error) {
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, lynisBin, "audit", "system", "--quiet") //nolint:gosec // lynisBin resolved above from PATH or a fixed allowlist, not user input
+	runBin, runArgs := priorityWrap(exec.LookPath, lynisBin, lynisArgs(opts))
+	cmd := exec.CommandContext(ctx, runBin, runArgs...) //nolint:gosec // runBin resolved above from PATH or a fixed allowlist, not user input
 	if runErr := cmd.Run(); runErr != nil {
 		var exitErr *exec.ExitError
 		// Lynis exits non-zero when it has warnings/suggestions; only
