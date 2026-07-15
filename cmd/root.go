@@ -17,6 +17,7 @@ var rootCmd = &cobra.Command{
 themis wraps audit findings with a check/plan/apply/rollback workflow:
 it maps flagged findings to concrete fixes, applies them idempotently,
 and saves rollback metadata on every run.`, buildinfo.GetVersionOnly()),
+	Version: buildinfo.Get(),
 	// main.go renders errors itself (with UserError hints where available),
 	// and a runtime failure like a missing lynis binary isn't a usage
 	// mistake, so don't dump the flag usage block after it.
@@ -30,6 +31,7 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(applyCmd)
