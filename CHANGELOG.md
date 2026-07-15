@@ -16,6 +16,10 @@ All notable changes to themis are documented here.
 - Add Apache 2.0 license, matching theia and eos ([`0f90838`](https://codeberg.org/Elysium_Labs/themis/commit/0f9083883cf9091db05b0857e9fd0107951d43a7))
 
 
+### Maintenance
+- Update changelog for v0.0.1 ([`68cbe20`](https://codeberg.org/Elysium_Labs/themis/commit/68cbe203791a5a32deb57283842cb66f9a6192b5))
+
+
 ### Miscellaneous
 - Merge pull request 'feat(cmd): group version/update/uninstall under `themis system`' (#12) from feat/system-command-group into main
 
@@ -38,6 +42,9 @@ Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/24 ([`cc3fd09`](http
 - Merge pull request 'Add Apache 2.0 license, matching theia and eos' (#25) from chore/apache-license into main
 
 Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/25 ([`20c9bf7`](https://codeberg.org/Elysium_Labs/themis/commit/20c9bf7a37eac804436fb415b81d32764b087a6c))
+- Merge pull request 'chore: update changelog for v0.0.1' (#26) from chore/changelog-v0.0.1 into main
+
+Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/26 ([`297cc38`](https://codeberg.org/Elysium_Labs/themis/commit/297cc38760be19d0e2271c93a5f4eb470980dd30))
 
 
 ### Testing
