@@ -2,11 +2,20 @@
 
 All notable changes to themis are documented here.
 
-## [0.0.1] - 2026-07-15
+## [0.0.1] - 2026-07-16
 
 ### Bug Fixes
 - Fail fast on non-root instead of after the audit runs ([`f727163`](https://codeberg.org/Elysium_Labs/themis/commit/f7271639fc741d819b5e1bf13fddaf830aced6f8))
 - Scope sshd bans to port, warn on WireGuard/CrowdSec conflicts ([`63eaa9f`](https://codeberg.org/Elysium_Labs/themis/commit/63eaa9ff89863ba1516699fd289600f836a62101))
+- Skip merge commits and changelog-bump commits from changelog ([`2cbbf08`](https://codeberg.org/Elysium_Labs/themis/commit/2cbbf0831be2f700e5d48f04e4cf00d0466b9124))
+- Use full GitHub URL for osv-scanner-action, not mirrored on Forgejo ([`08451c5`](https://codeberg.org/Elysium_Labs/themis/commit/08451c5164ebe7351b1efcea55b69bddaa590374))
+- Allow GOTOOLCHAIN auto-upgrade for osv-scanner install ([`90c8b8c`](https://codeberg.org/Elysium_Labs/themis/commit/90c8b8cf3ce76ebbe7f8f19fe790cb52c84e6e7a))
+- Atomic binary swap in install.sh ([`5cd07a2`](https://codeberg.org/Elysium_Labs/themis/commit/5cd07a2bab32db13e0252a31613041d9477c5322))
+
+
+### CI/CD
+- Add OSV scanner workflow for PRs to main ([`0c918d3`](https://codeberg.org/Elysium_Labs/themis/commit/0c918d3a7cd8f01b8d756732566c3fb8b6c33171))
+- Run osv-scanner CLI directly instead of GitHub Action wrapper ([`7f5850e`](https://codeberg.org/Elysium_Labs/themis/commit/7f5850e9ac6f2215390ce8352607dc2d9db5c606))
 
 
 ### Features
@@ -14,30 +23,8 @@ All notable changes to themis are documented here.
 - Introduce Source interface, decouple check/api from Lynis ([`bf9c9be`](https://codeberg.org/Elysium_Labs/themis/commit/bf9c9be07b2787d3d3075056118140d3ea6367c7))
 - Add --quick flag and nice/ionice priority wrapping ([`5471776`](https://codeberg.org/Elysium_Labs/themis/commit/547177661fd921f954931a289735a3fba32a2064))
 - Add Apache 2.0 license, matching theia and eos ([`0f90838`](https://codeberg.org/Elysium_Labs/themis/commit/0f9083883cf9091db05b0857e9fd0107951d43a7))
-
-
-### Miscellaneous
-- Merge pull request 'feat(cmd): group version/update/uninstall under `themis system`' (#12) from feat/system-command-group into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/12 ([`ddfd48a`](https://codeberg.org/Elysium_Labs/themis/commit/ddfd48a44db512b2868e9dc479cb2072f1363476))
-- Merge pull request 'feat/completion-command' (#13) from feat/completion-command into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/13 ([`01891be`](https://codeberg.org/Elysium_Labs/themis/commit/01891bef3d7b0936f46940e120c63d3120202dc7))
-- Merge pull request 'feat(audit): introduce Source interface, decouple check/api from Lynis' (#17) from feat/source-interface into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/17 ([`0173c8e`](https://codeberg.org/Elysium_Labs/themis/commit/0173c8e40e89cbe306d70a1bbe37aea24a52a0c8))
-- Merge pull request 'fix(lynis): fail fast on non-root instead of after the audit runs' (#18) from feat/native-checks-source into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/18 ([`21a0326`](https://codeberg.org/Elysium_Labs/themis/commit/21a0326b25324d818a6f5a1231b92dec15c2377f))
-- Merge pull request 'feat(lynis): add --quick flag and nice/ionice priority wrapping' (#23) from feat/lynis-quick-nice into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/23 ([`8952f87`](https://codeberg.org/Elysium_Labs/themis/commit/8952f878d8cafb9056809b07f227140d806bb70d))
-- Merge pull request 'fix(fail2ban): scope sshd bans to port, warn on WireGuard/CrowdSec conflicts' (#24) from fix/fail2ban-scope-bans-to-port into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/24 ([`cc3fd09`](https://codeberg.org/Elysium_Labs/themis/commit/cc3fd09b500dbaa38c46b8b8b75f2593cc69aa16))
-- Merge pull request 'Add Apache 2.0 license, matching theia and eos' (#25) from chore/apache-license into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/25 ([`20c9bf7`](https://codeberg.org/Elysium_Labs/themis/commit/20c9bf7a37eac804436fb415b81d32764b087a6c))
+- Add themis-native audit source (closes #15) ([`6a1d5cb`](https://codeberg.org/Elysium_Labs/themis/commit/6a1d5cb2b06f978cf3da6fda1800566387d95aa9))
+- Add top-level --version/-v flag ([`1c1ad37`](https://codeberg.org/Elysium_Labs/themis/commit/1c1ad37b10a0fd6ceffd7ec58b5f2c3ebc436a88))
 
 
 ### Testing
@@ -52,9 +39,6 @@ Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/25 ([`20c9bf7`](http
 
 ### Miscellaneous
 - Use ui package styling in apply/rollback output ([`90736cd`](https://codeberg.org/Elysium_Labs/themis/commit/90736cd720482630b211b8147b64f2ab31451365))
-- Merge pull request 'style(cmd): use ui package styling in apply/rollback output' (#11) from fix/apply-rollback-ui-styling into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/11 ([`3b30907`](https://codeberg.org/Elysium_Labs/themis/commit/3b3090752b7202e2a00dc84f4a04d054d5cb7062))
 
 ## [0.0.1-rc.5] - 2026-07-14
 
@@ -76,45 +60,15 @@ Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/11 ([`3b30907`](http
 ### Improvements
 - Update README.md ([`c2bff89`](https://codeberg.org/Elysium_Labs/themis/commit/c2bff89210c116fa62e7936f565ebd28a386a757))
 
-
-### Miscellaneous
-- Merge pull request 'feat: show version in default help output' (#6) from feat/show-version-in-help into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/6 ([`74366b5`](https://codeberg.org/Elysium_Labs/themis/commit/74366b5e342fc6d3d94d820f87f56a5305cbd659))
-- Merge pull request 'fix(ci): generate real changelog notes for releases' (#7) from fix/release-notes-changelog into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/7 ([`aac4ba2`](https://codeberg.org/Elysium_Labs/themis/commit/aac4ba223eaadbf066b5145b86a38783488ae244))
-- Merge pull request 'fix: resolve lynis outside PATH, add blank line after CLI errors' (#8) from fix/lynis-path-fallback into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/8 ([`2598f94`](https://codeberg.org/Elysium_Labs/themis/commit/2598f943a09e849e3b2e47e1fd7b04c070c53507))
-- Merge pull request 'ci: add issue/PR templates, mirroring eos' (#9) from codeberg/issue-templates into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/9 ([`c44311f`](https://codeberg.org/Elysium_Labs/themis/commit/c44311faceed8a94aac74c6679cef53ce692177a))
-- Merge pull request 'fix(ci): detect host arch for git-cliff install' (#10) from fix/git-cliff-arch-detect into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/10 ([`a07f389`](https://codeberg.org/Elysium_Labs/themis/commit/a07f389b957107816510cdc314df40df237347b5))
-
 ## [0.0.1-rc.4] - 2026-07-14
 
 ### Features
 - Add --pre flag to themis update, inline release logic into cmd ([`22b30e9`](https://codeberg.org/Elysium_Labs/themis/commit/22b30e9d707d8f6bc666459948ff067074b84fae))
 
-
-### Miscellaneous
-- Merge pull request 'feat: add --pre flag to themis update, inline release logic into cmd' (#5) from feat/update-prerelease-support into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/5 ([`cf5ac3a`](https://codeberg.org/Elysium_Labs/themis/commit/cf5ac3ac854e9c5247f21e90373553d76d1954b2))
-
 ## [0.0.1-rc.3] - 2026-07-14
 
 ### Features
 - Guard SSH password-auth fix against lockout, fix nilaway finding ([`4475c63`](https://codeberg.org/Elysium_Labs/themis/commit/4475c6307f47ed9cdb6952f44db17350b46ccab7))
-
-
-### Miscellaneous
-- Merge pull request 'feat: guard SSH password-auth fix against lockout, fix nilaway finding' (#4) from feat/ssh-lockout-guard into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/4 ([`ce89380`](https://codeberg.org/Elysium_Labs/themis/commit/ce89380b30f4cba018c922c9e55fcd4b52d6563f))
 
 ## [0.0.1-rc.2] - 2026-07-14
 
@@ -130,15 +84,6 @@ Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/4 ([`ce89380`](https
 ### Maintenance
 - Add lefthook config, mirroring eos ([`ce84a14`](https://codeberg.org/Elysium_Labs/themis/commit/ce84a1416c5648fef6f33e452b560fff5559b44d))
 - Wire up fieldalignment tool, enable it in lefthook ([`e210702`](https://codeberg.org/Elysium_Labs/themis/commit/e2107028ba02ecb5684a54cfeaa243fe927f5ccf))
-
-
-### Miscellaneous
-- Merge pull request 'feat: human-readable errors and audit spinner' (#1) from feat/friendly-errors-and-spinner into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/1 ([`f2ca60f`](https://codeberg.org/Elysium_Labs/themis/commit/f2ca60fd1d602b95b6c6e087018472b88469461d))
-- Merge pull request 'feat: add themis update and uninstall commands' (#2) from feat/update-uninstall into main
-
-Reviewed-on: https://codeberg.org/Elysium_Labs/themis/pulls/2 ([`fe4c425`](https://codeberg.org/Elysium_Labs/themis/commit/fe4c4253fb6de6e1081d5e02b521f1da4a9b6c75))
 
 ## [0.0.1-rc.1] - 2026-07-13
 
