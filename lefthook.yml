@@ -26,3 +26,8 @@ pre-commit:
       glob: "*.go"
       run: go test -short ./...
       priority: 3
+
+    crap:
+      glob: "*.go"
+      run: make crap
+      priority: 4

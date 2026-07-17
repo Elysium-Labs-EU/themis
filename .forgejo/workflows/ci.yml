@@ -38,6 +38,28 @@ jobs:
       - name: Run tests
         run: go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
 
+  crap:
+    name: CRAP Score
+    runs-on: codeberg-small
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate coverage profile
+        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+
+      - name: Install go-crap
+        run: go install github.com/padiazg/go-crap@latest
+
+      - name: Run go-crap scan
+        run: go-crap scan . --fail-above
+
   verify-build:
     name: Verify Build
     runs-on: codeberg-small
