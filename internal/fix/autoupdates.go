@@ -14,61 +14,80 @@ type autoUpdatesState struct {
 }
 
 func autoUpdatesFix() Fix {
+	return autoUpdatesFixWith(autoUpgradesConfigPath, runCmd, packageInstalled)
+}
+
+// autoUpdatesFixWith builds the PKGS-7392 fix with the config path and
+// effect seams parameterized, so Check/Apply/Revert are unit-testable
+// against a temp file with fake runners.
+func autoUpdatesFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
 	return Fix{
 		TestID:      "PKGS-7392",
 		Description: "enable unattended-upgrades for automatic security updates",
-		Check: func() (bool, error) {
-			if !packageInstalled("unattended-upgrades") {
-				return false, nil
-			}
-			content, existed, err := ReadFileOrEmpty(autoUpgradesConfigPath)
-			if err != nil {
-				return false, err
-			}
-			if !existed {
-				return false, nil
-			}
-			return DirectiveValue(string(content), "APT::Periodic::Unattended-Upgrade") == `"1";`, nil
-		},
-		Apply: func() ([]byte, error) {
-			wasInstalled := packageInstalled("unattended-upgrades")
-			if !wasInstalled {
-				if err := runCmd("apt-get", "install", "-y", "unattended-upgrades"); err != nil {
-					return nil, err
-				}
-			}
-			original, existed, err := ReadFileOrEmpty(autoUpgradesConfigPath)
-			if err != nil {
-				return nil, err
-			}
-			updated := setDirective(string(original), "APT::Periodic::Unattended-Upgrade", `"1";`)
-			updated = setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
-			if writeErr := writeFile(autoUpgradesConfigPath, []byte(updated), 0o644); writeErr != nil {
-				return nil, writeErr
-			}
-			state := autoUpdatesState{WasInstalled: wasInstalled, PrevConfig: original, ConfigExisted: existed}
-			data, err := json.Marshal(state)
-			if err != nil {
-				return nil, fmt.Errorf("marshaling auto-updates revert state: %w", err)
-			}
-			return data, nil
-		},
-		Revert: func(data []byte) error {
-			var state autoUpdatesState
-			if err := json.Unmarshal(data, &state); err != nil {
-				return fmt.Errorf("unmarshaling auto-updates revert state: %w", err)
-			}
-			if state.ConfigExisted {
-				if err := writeFile(autoUpgradesConfigPath, state.PrevConfig, 0o644); err != nil {
-					return err
-				}
-			} else if err := removeFile(autoUpgradesConfigPath); err != nil {
-				return err
-			}
-			if !state.WasInstalled {
-				return runCmd("apt-get", "remove", "-y", "unattended-upgrades")
-			}
-			return nil
-		},
+		Check:       func() (bool, error) { return autoUpdatesCheck(path, pkgInstalled) },
+		Apply:       func() ([]byte, error) { return autoUpdatesApply(path, run, pkgInstalled) },
+		Revert:      func(data []byte) error { return autoUpdatesRevert(data, path, run) },
 	}
+}
+
+// autoUpdatesCheck reports whether unattended-upgrades is installed and the
+// config at path enables the Unattended-Upgrade periodic directive.
+func autoUpdatesCheck(path string, pkgInstalled pkgChecker) (bool, error) {
+	if !pkgInstalled("unattended-upgrades") {
+		return false, nil
+	}
+	content, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return false, err
+	}
+	if !existed {
+		return false, nil
+	}
+	return DirectiveValue(string(content), "APT::Periodic::Unattended-Upgrade") == `"1";`, nil
+}
+
+// autoUpdatesApply installs unattended-upgrades if needed, sets the periodic
+// directives in the config at path, and returns the JSON revert state.
+func autoUpdatesApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]byte, error) {
+	wasInstalled := pkgInstalled("unattended-upgrades")
+	if !wasInstalled {
+		if err := run("apt-get", "install", "-y", "unattended-upgrades"); err != nil {
+			return nil, err
+		}
+	}
+	original, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return nil, err
+	}
+	updated := setDirective(string(original), "APT::Periodic::Unattended-Upgrade", `"1";`)
+	updated = setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
+	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
+		return nil, writeErr
+	}
+	state := autoUpdatesState{WasInstalled: wasInstalled, PrevConfig: original, ConfigExisted: existed}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling auto-updates revert state: %w", err)
+	}
+	return data, nil
+}
+
+// autoUpdatesRevert restores the config at path (or removes it if it didn't
+// exist) and undoes the install using the JSON revert state.
+func autoUpdatesRevert(data []byte, path string, run cmdRunner) error {
+	var state autoUpdatesState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshaling auto-updates revert state: %w", err)
+	}
+	if state.ConfigExisted {
+		if err := writeFile(path, state.PrevConfig, 0o644); err != nil {
+			return err
+		}
+	} else if err := removeFile(path); err != nil {
+		return err
+	}
+	if !state.WasInstalled {
+		return run("apt-get", "remove", "-y", "unattended-upgrades")
+	}
+	return nil
 }
