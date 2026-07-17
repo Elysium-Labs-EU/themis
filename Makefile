@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck crap crap-report sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck crap crap-report sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -66,6 +66,17 @@ ci: test lint sg nilcheck test-coverage-check crap ## Run all CI checks locally
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)
 	orb run -m $(ORB_MACHINE) bash -lc "export PATH=/usr/local/go/bin:\$$PATH; cd $(PWD) && go test ./... -race -count=2"
+
+test-integration: ## Run //go:build integration tests (real host: root+Linux for fix/lynis; on OrbStack: make test-integration-orb)
+	@echo "Running integration tests (host: $$(uname -s), uid: $$(id -u))..."
+	@echo "  Fix/lynis cases self-skip unless run as root on Linux — use 'make test-integration-orb'."
+	go test ./... -tags integration -v -count=1
+
+test-integration-orb: ## Run the FULL integration suite (incl host-mutating fix tests) as root on OrbStack $(ORB_MACHINE) (install lynis first: make lynis-install-orb)
+	orb run -m $(ORB_MACHINE) -u root bash -lc "export PATH=/usr/local/go/bin:\$$PATH; export THEMIS_INTEGRATION_MUTATE=1; cd $(PWD) && go test ./... -tags integration -v -count=1"
+
+smoke-update-orb: ## Manual: real dev->latest self-update on OrbStack from a /tmp copy (network; hits Codeberg releases). Not run in CI.
+	ssh orb "export PATH=\$$PATH:/usr/local/go/bin && rm -rf /tmp/themis-src && cp -r $(PWD) /tmp/themis-src && cd /tmp/themis-src && CC=clang go build -ldflags \"-X '$(VERSION_PKG).Version=0.0.0-dev'\" -o /tmp/themis-smoke . && echo '--- before ---' && /tmp/themis-smoke system version && echo '--- update ---' && sudo /tmp/themis-smoke system update && echo '--- after ---' && /tmp/themis-smoke system version"
 
 build-orb: ## Build linux/arm64 binary on OrbStack $(ORB_MACHINE) (copies to /tmp to avoid FUSE issues)
 	ssh orb "export PATH=\$$PATH:/usr/local/go/bin && rm -rf /tmp/themis-src && cp -r $(PWD) /tmp/themis-src && cd /tmp/themis-src && CC=clang go build -o /tmp/themis . && echo built"
