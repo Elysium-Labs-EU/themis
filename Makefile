@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck crap sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck crap crap-report sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -37,9 +37,13 @@ nilcheck: ## Static nil-pointer safety analysis
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
 	nilaway ./...
 
-crap: test-coverage-check ## Fail if any function's CRAP score exceeds go-crap's default threshold
+crap: test-coverage-check ## Fail only if a function THIS change modified exceeds the CRAP threshold (Change-Risk Analysis)
 	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: go install github.com/padiazg/go-crap@latest"; exit 1; }
-	go-crap scan . --fail-above
+	bash scripts/go-crap-gate.sh .
+
+crap-report: ## Print full whole-repo CRAP debt list (no gate; informational)
+	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: go install github.com/padiazg/go-crap@latest"; exit 1; }
+	go-crap scan .
 
 sg: ## Scan codebase with ast-grep rules (skipped until rules/ ported)
 	@if [ -d rules ]; then ast-grep scan; else echo "no rules/ dir yet, skipping"; fi
