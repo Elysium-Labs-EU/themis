@@ -34,6 +34,29 @@ jobs:
       - name: Run tests
         run: go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
 
+  crap:
+    name: CRAP Score
+    runs-on: codeberg-small
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install go-crap
+        run: go install github.com/padiazg/go-crap@latest
+
+      - name: Run change-scoped CRAP gate
+        run: make crap
+        env:
+          GO_CRAP_BASE: origin/${{ github.base_ref }}
+
   verify-build:
     name: Verify Build
     runs-on: codeberg-small

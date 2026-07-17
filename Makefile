@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck crap crap-report sg fix setup ci test-linux build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -37,6 +37,14 @@ nilcheck: ## Static nil-pointer safety analysis
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
 	nilaway ./...
 
+crap: test-coverage-check ## Fail only if a function THIS change modified exceeds the CRAP threshold (Change-Risk Analysis)
+	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: go install github.com/padiazg/go-crap@latest"; exit 1; }
+	bash scripts/go-crap-gate.sh .
+
+crap-report: ## Print full whole-repo CRAP debt list (no gate; informational)
+	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: go install github.com/padiazg/go-crap@latest"; exit 1; }
+	go-crap scan .
+
 sg: ## Scan codebase with ast-grep rules (skipped until rules/ ported)
 	@if [ -d rules ]; then ast-grep scan; else echo "no rules/ dir yet, skipping"; fi
 
@@ -44,14 +52,16 @@ fix: ## Fix go formatting
 	golangci-lint fmt
 	go tool fieldalignment -fix ./...
 
-setup: ## Install dev tools (golangci-lint, nilaway) — same versions as eos
+setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions as eos
 	@echo "Installing golangci-lint v2.11.0..."
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v2.11.0
 	@echo "Installing nilaway..."
 	go install go.uber.org/nilaway/cmd/nilaway@latest
+	@echo "Installing go-crap..."
+	go install github.com/padiazg/go-crap@latest
 	@echo "Setup complete."
 
-ci: test lint sg nilcheck test-coverage-check ## Run all CI checks locally
+ci: test lint sg nilcheck test-coverage-check crap ## Run all CI checks locally
 	@echo "All CI checks passed!"
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)
