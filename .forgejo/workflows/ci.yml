@@ -15,6 +15,11 @@ jobs:
   test:
     name: Test
     runs-on: codeberg-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+      volumes:
+        - gomodcache-themis:/root/go/pkg/mod
+        - gobuildcache-themis:/root/.cache/go-build
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -23,7 +28,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Install dependencies
         run: go mod download
@@ -60,6 +65,11 @@ jobs:
   verify-build:
     name: Verify Build
     runs-on: codeberg-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+      volumes:
+        - gomodcache-themis:/root/go/pkg/mod
+        - gobuildcache-themis:/root/.cache/go-build
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -68,7 +78,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Verify code compiles
         run: go build -v ./...
