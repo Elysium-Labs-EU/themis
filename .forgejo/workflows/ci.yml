@@ -60,16 +60,22 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      # lynis powers the lynis audit integration test; the fix apply/revert
-      # tests use apt/dpkg (present on this image). Tests that additionally
-      # need systemd as PID 1 (fail2ban, firewall) self-skip via
-      # requireSystemd() when this container has no systemd — safe either way.
-      - name: Install lynis
+      # lynis powers the B3 audit test; if this restricted runner can't reach
+      # the apt mirror the install is best-effort and the test self-skips
+      # (t.Skip on missing lynis) rather than failing the job.
+      - name: Install lynis (best-effort)
+        continue-on-error: true
         run: |
           apt-get update
           apt-get install -y lynis
 
       # codeberg-small already runs jobs as root, so no sudo needed.
+      # Here THEMIS_INTEGRATION_MUTATE is intentionally UNSET, so the
+      # host-mutating B1 fix apply/revert tests self-skip (they install
+      # packages + enable services, which the container can't support). They
+      # run for real on OrbStack via `make test-integration-orb`. The B2
+      # hermetic self-update test is fully self-contained and runs here; B3
+      # lynis runs or skips depending on the install step above.
       - name: Run integration tests
         run: go test ./... -tags integration -v -count=1
 
