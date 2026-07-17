@@ -58,6 +58,18 @@ func requireSystemd(t *testing.T) {
 	}
 }
 
+// requireMutationOptIn gates the host-mutating apply/revert tests behind an
+// explicit opt-in. They apt-get install packages, enable services, and touch
+// ufw — fine on a throwaway OrbStack VM (make test-integration-orb sets the
+// env), but they must NOT run on the shared/networkless CI runner, where they
+// would fail rather than skip. Unset env => skip.
+func requireMutationOptIn(t *testing.T) {
+	t.Helper()
+	if os.Getenv("THEMIS_INTEGRATION_MUTATE") != "1" {
+		t.Skip("host-mutating; set THEMIS_INTEGRATION_MUTATE=1 (make test-integration-orb) to run")
+	}
+}
+
 // mustRun runs a command and returns its combined output, failing the test
 // on a non-nil error. For verification steps that MUST succeed.
 func mustRun(t *testing.T, name string, args ...string) string {
@@ -128,6 +140,7 @@ func assertRestored(t *testing.T, path string, before []byte, existedBefore bool
 }
 
 func TestFail2banApplyRevertIntegration(t *testing.T) {
+	requireMutationOptIn(t)
 	requireApt(t)
 	requireSystemd(t)
 
@@ -156,6 +169,7 @@ func TestFail2banApplyRevertIntegration(t *testing.T) {
 }
 
 func TestAutoUpdatesApplyRevertIntegration(t *testing.T) {
+	requireMutationOptIn(t)
 	requireApt(t)
 
 	before, existedBefore := snapshotFile(t, autoUpgradesConfigPath)
@@ -177,6 +191,7 @@ func TestAutoUpdatesApplyRevertIntegration(t *testing.T) {
 }
 
 func TestFirewallDefaultDenyApplyRevertIntegration(t *testing.T) {
+	requireMutationOptIn(t)
 	requireApt(t)
 	requireSystemd(t)
 

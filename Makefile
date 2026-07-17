@@ -72,8 +72,8 @@ test-integration: ## Run //go:build integration tests (real host: root+Linux for
 	@echo "  Fix/lynis cases self-skip unless run as root on Linux — use 'make test-integration-orb'."
 	go test ./... -tags integration -v -count=1
 
-test-integration-orb: ## Run the integration suite as root on OrbStack $(ORB_MACHINE) (install lynis first: make lynis-install-orb)
-	orb run -m $(ORB_MACHINE) -u root bash -lc "export PATH=/usr/local/go/bin:\$$PATH; cd $(PWD) && go test ./... -tags integration -v -count=1"
+test-integration-orb: ## Run the FULL integration suite (incl host-mutating fix tests) as root on OrbStack $(ORB_MACHINE) (install lynis first: make lynis-install-orb)
+	orb run -m $(ORB_MACHINE) -u root bash -lc "export PATH=/usr/local/go/bin:\$$PATH; export THEMIS_INTEGRATION_MUTATE=1; cd $(PWD) && go test ./... -tags integration -v -count=1"
 
 smoke-update-orb: ## Manual: real dev->latest self-update on OrbStack from a /tmp copy (network; hits Codeberg releases). Not run in CI.
 	ssh orb "export PATH=\$$PATH:/usr/local/go/bin && rm -rf /tmp/themis-src && cp -r $(PWD) /tmp/themis-src && cd /tmp/themis-src && CC=clang go build -ldflags \"-X '$(VERSION_PKG).Version=0.0.0-dev'\" -o /tmp/themis-smoke . && echo '--- before ---' && /tmp/themis-smoke system version && echo '--- update ---' && sudo /tmp/themis-smoke system update && echo '--- after ---' && /tmp/themis-smoke system version"
