@@ -42,7 +42,7 @@ func newCheckCmd() *cobra.Command {
 				return err
 			}
 			report := checkreport.Build(findings, fixes)
-			printCheckReport(cmd, report, showAll)
+			printCheckReport(cmd.OutOrStdout(), report, showAll)
 			return nil
 		},
 	}
@@ -81,18 +81,56 @@ func printFindingBlock(out io.Writer, f *checkreport.Finding) {
 	}
 }
 
-func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll bool) {
-	out := cmd.OutOrStdout()
-
-	shown := make([]checkreport.Finding, 0, len(report.Findings))
-	deemphasized := make([]checkreport.Finding, 0, len(report.Findings))
-	for _, f := range report.Findings {
+// partitionFindings splits findings into those to show and those to
+// de-emphasize (not actionable, unless showAll is set). Pure — no I/O.
+func partitionFindings(findings []checkreport.Finding, showAll bool) (shown, deemphasized []checkreport.Finding) {
+	shown = make([]checkreport.Finding, 0, len(findings))
+	deemphasized = make([]checkreport.Finding, 0, len(findings))
+	for _, f := range findings {
 		if !f.Actionable && !showAll {
 			deemphasized = append(deemphasized, f)
 			continue
 		}
 		shown = append(shown, f)
 	}
+	return shown, deemphasized
+}
+
+// printDeemphasized lists the findings themis can't act on directly, with a
+// pointer to `themis check --all`. No-op when there are none.
+func printDeemphasized(out io.Writer, deemphasized []checkreport.Finding) {
+	if len(deemphasized) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no solution hint):\n",
+		ui.TextMuted.Render("i"), len(deemphasized))
+	for _, f := range deemphasized {
+		_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(f.TestID+" — "+f.Description))
+	}
+	_, _ = fmt.Fprintf(out, "  run %s for full details\n", ui.TextCommand.Render("themis check --all"))
+}
+
+// printNativeChecks lists themis-native checks that matched no source
+// finding, flagging any that aren't satisfied. No-op when there are none.
+func printNativeChecks(out io.Writer, native []checkreport.Fix) {
+	if len(native) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no matching finding):"))
+	for _, f := range native {
+		status := ui.LabelSuccess.Render("✓ satisfied")
+		if !f.Satisfied {
+			status = ui.LabelWarning.Render("○ not satisfied")
+		}
+		_, _ = fmt.Fprintf(out, "  %s %s — %s\n", status, f.TestID, f.Description)
+		if !f.Satisfied {
+			_, _ = fmt.Fprintf(out, "      run %s\n", ui.TextCommand.Render("themis apply"))
+		}
+	}
+}
+
+func printCheckReport(out io.Writer, report checkreport.Report, showAll bool) {
+	shown, deemphasized := partitionFindings(report.Findings, showAll)
 
 	_, _ = fmt.Fprintf(out, "%s audit reported %d finding(s)\n\n", ui.LabelInfo.Render("i"), len(report.Findings))
 
@@ -103,26 +141,6 @@ func printCheckReport(cmd *cobra.Command, report checkreport.Report, showAll boo
 		printFindingBlock(out, &shown[i])
 	}
 
-	if len(deemphasized) > 0 {
-		_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no solution hint):\n",
-			ui.TextMuted.Render("i"), len(deemphasized))
-		for _, f := range deemphasized {
-			_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(f.TestID+" — "+f.Description))
-		}
-		_, _ = fmt.Fprintf(out, "  run %s for full details\n", ui.TextCommand.Render("themis check --all"))
-	}
-
-	if len(report.Native) > 0 {
-		_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no matching finding):"))
-		for _, f := range report.Native {
-			status := ui.LabelSuccess.Render("✓ satisfied")
-			if !f.Satisfied {
-				status = ui.LabelWarning.Render("○ not satisfied")
-			}
-			_, _ = fmt.Fprintf(out, "  %s %s — %s\n", status, f.TestID, f.Description)
-			if !f.Satisfied {
-				_, _ = fmt.Fprintf(out, "      run %s\n", ui.TextCommand.Render("themis apply"))
-			}
-		}
-	}
+	printDeemphasized(out, deemphasized)
+	printNativeChecks(out, report.Native)
 }

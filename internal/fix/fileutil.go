@@ -9,6 +9,18 @@ import (
 	"strings"
 )
 
+// cmdRunner runs a command, reporting failure as an error. Real fixes wire
+// runCmd; tests inject a fake to drive Apply/Revert without touching the host.
+type cmdRunner func(name string, args ...string) error
+
+// outputRunner runs a command and returns its combined output. Real fixes
+// wire runCmdOutput; tests inject a fake.
+type outputRunner func(name string, args ...string) (string, error)
+
+// pkgChecker reports whether a package is installed. Real fixes wire
+// packageInstalled; tests inject a fake.
+type pkgChecker func(name string) bool
+
 // ReadFileOrEmpty reads path, reporting whether it existed. A missing
 // file is not an error — callers treat "didn't exist" as meaningful
 // revert state (Revert should remove the file, not restore empty

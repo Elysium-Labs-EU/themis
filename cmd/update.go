@@ -106,16 +106,28 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 	return rel, nil
 }
 
-// downloadFile fetches downloadURL to destPath. It refuses anything but a
-// plain https://codeberg.org URL, since this is used to fetch and then
-// execute-in-place a new themis binary.
-func downloadFile(ctx context.Context, downloadURL, destPath string) error {
+// allowedDownloadHost is the only host themis will fetch an executable from.
+const allowedDownloadHost = "codeberg.org"
+
+// validateDownloadURL refuses anything but a plain https://codeberg.org URL,
+// since downloadFile fetches and then executes-in-place a new themis binary.
+// Pure — no I/O.
+func validateDownloadURL(downloadURL string) error {
 	u, err := url.Parse(downloadURL)
 	if err != nil {
 		return fmt.Errorf("parsing download URL: %w", err)
 	}
-	if u.Scheme != "https" || u.Host != "codeberg.org" {
+	if u.Scheme != "https" || u.Host != allowedDownloadHost {
 		return fmt.Errorf("refusing to download from untrusted host %q", u.Host)
+	}
+	return nil
+}
+
+// downloadFile fetches downloadURL to destPath, refusing any host but
+// https://codeberg.org (see validateDownloadURL).
+func downloadFile(ctx context.Context, downloadURL, destPath string) error {
+	if err := validateDownloadURL(downloadURL); err != nil {
+		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
@@ -136,6 +148,12 @@ func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 		return fmt.Errorf("downloading %s: unexpected status %s", downloadURL, resp.Status)
 	}
 
+	return writeResponseBody(destPath, resp, downloadURL)
+}
+
+// writeResponseBody streams resp.Body to destPath, verifying the byte count
+// against Content-Length when the server provides one.
+func writeResponseBody(destPath string, resp *http.Response, downloadURL string) error {
 	out, err := os.Create(destPath) //nolint:gosec // destPath is a caller-controlled temp path
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", destPath, err)
@@ -277,6 +295,55 @@ func normalizeSemver(v string) string {
 	return v
 }
 
+// isUpToDate reports whether currentVersion is already at or ahead of
+// latestVer. Both must be valid semver for the comparison to apply; if
+// either isn't, an update is assumed available. Pure — no I/O.
+func isUpToDate(currentVersion, latestVer string) bool {
+	currentVer := normalizeSemver(currentVersion)
+	return semver.IsValid(currentVer) && semver.IsValid(latestVer) &&
+		semver.Compare(currentVer, latestVer) >= 0
+}
+
+// resolveReleaseAssets picks the themis binary asset for linux/arch and the
+// checksums asset from rel, erroring (as a UserError) if either is absent.
+// Pure — no I/O.
+func resolveReleaseAssets(rel Release, arch string) (binary, checksums Asset, err error) {
+	binary, ok := rel.AssetFor(arch)
+	if !ok {
+		return Asset{}, Asset{}, &ui.UserError{Err: fmt.Errorf("release %s has no asset for linux-%s", rel.TagName, arch)}
+	}
+	checksums, ok = rel.ChecksumsAsset()
+	if !ok {
+		return Asset{}, Asset{}, &ui.UserError{Err: fmt.Errorf("release %s is missing sha256sums.txt", rel.TagName)}
+	}
+	return binary, checksums, nil
+}
+
+// downloadVerifiedBinary downloads the release binary and its checksums into
+// tmpDir, verifies the binary's sha256, and returns the local binary path.
+func downloadVerifiedBinary(ctx context.Context, binary, checksums Asset, tmpDir, latestVer string) (string, error) {
+	binTmp := filepath.Join(tmpDir, "themis")
+	err := ui.WithSpinner(fmt.Sprintf("Downloading %s...", latestVer), func() error {
+		return downloadFile(ctx, binary.DownloadURL, binTmp)
+	})
+	if err != nil {
+		return "", fmt.Errorf("downloading update: %w", err)
+	}
+
+	checksumsTmp := filepath.Join(tmpDir, "sha256sums.txt")
+	if dlErr := downloadFile(ctx, checksums.DownloadURL, checksumsTmp); dlErr != nil {
+		return "", fmt.Errorf("downloading checksums: %w", dlErr)
+	}
+	checksumsData, err := os.ReadFile(checksumsTmp) //nolint:gosec // fixed name in a themis-owned temp dir
+	if err != nil {
+		return "", fmt.Errorf("reading checksums: %w", err)
+	}
+	if verifyErr := verifyChecksum(binTmp, string(checksumsData), binary.Name); verifyErr != nil {
+		return "", &ui.UserError{Err: verifyErr}
+	}
+	return binTmp, nil
+}
+
 // runUpdate implements `themis system update` against an explicit exePath, so it
 // can be exercised in tests without touching the test binary itself
 // (os.Executable() under `go test` is the test binary).
@@ -291,8 +358,8 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 		return fmt.Errorf("checking for updates: %w", err)
 	}
 
-	currentVer, latestVer := normalizeSemver(currentVersion), rel.TagName
-	if semver.IsValid(currentVer) && semver.IsValid(latestVer) && semver.Compare(currentVer, latestVer) >= 0 {
+	latestVer := rel.TagName
+	if isUpToDate(currentVersion, latestVer) {
 		_, _ = fmt.Fprintf(out, "%s already on the latest version (%s)\n", ui.LabelSuccess.Render("✓"), currentVersion)
 		return nil
 	}
@@ -303,13 +370,9 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	if err != nil {
 		return err
 	}
-	asset, ok := rel.AssetFor(arch)
-	if !ok {
-		return &ui.UserError{Err: fmt.Errorf("release %s has no asset for linux-%s", latestVer, arch)}
-	}
-	checksums, ok := rel.ChecksumsAsset()
-	if !ok {
-		return &ui.UserError{Err: fmt.Errorf("release %s is missing sha256sums.txt", latestVer)}
+	binary, checksums, err := resolveReleaseAssets(rel, arch)
+	if err != nil {
+		return err
 	}
 
 	if writeErr := checkWritable(filepath.Dir(exePath)); writeErr != nil {
@@ -325,24 +388,9 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binTmp := filepath.Join(tmpDir, "themis")
-	err = ui.WithSpinner(fmt.Sprintf("Downloading %s...", latestVer), func() error {
-		return downloadFile(ctx, asset.DownloadURL, binTmp)
-	})
+	binTmp, err := downloadVerifiedBinary(ctx, binary, checksums, tmpDir, latestVer)
 	if err != nil {
-		return fmt.Errorf("downloading update: %w", err)
-	}
-
-	checksumsTmp := filepath.Join(tmpDir, "sha256sums.txt")
-	if dlErr := downloadFile(ctx, checksums.DownloadURL, checksumsTmp); dlErr != nil {
-		return fmt.Errorf("downloading checksums: %w", dlErr)
-	}
-	checksumsData, err := os.ReadFile(checksumsTmp) //nolint:gosec // fixed name in a themis-owned temp dir
-	if err != nil {
-		return fmt.Errorf("reading checksums: %w", err)
-	}
-	if verifyErr := verifyChecksum(binTmp, string(checksumsData), asset.Name); verifyErr != nil {
-		return &ui.UserError{Err: verifyErr}
+		return err
 	}
 	_, _ = fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
 

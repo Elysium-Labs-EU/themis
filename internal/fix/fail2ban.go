@@ -25,64 +25,85 @@ type fail2banState struct {
 // fail2banFix has no Lynis equivalent — it demonstrates a themis-native
 // check registered outside the Lynis-wrap path.
 func fail2banFix() Fix {
+	return fail2banFixWith(fail2banJailLocalPath, runCmd, packageInstalled)
+}
+
+// fail2banFixWith builds the THEMIS-FAIL2BAN fix with the jail.local path
+// and effect seams parameterized, so the Check/Apply/Revert logic is
+// unit-testable against a temp file with fake runners (mirrors
+// sshDisableDirectiveFixAt's rationale).
+func fail2banFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
 	return Fix{
 		TestID:      "THEMIS-FAIL2BAN",
 		Description: "install and enable fail2ban with an sshd jail",
 		Warn:        fail2banWarn,
-		Check: func() (bool, error) {
-			if err := runCmd("systemctl", "is-active", "--quiet", "fail2ban"); err != nil {
-				return false, nil //nolint:nilerr // service not active means the check is simply unsatisfied
-			}
-			content, existed, err := ReadFileOrEmpty(fail2banJailLocalPath)
-			if err != nil {
-				return false, err
-			}
-			return existed && SSHDJailEnabled(string(content)) && SSHDBanactionScoped(string(content)), nil
-		},
-		Apply: func() ([]byte, error) {
-			wasInstalled := packageInstalled("fail2ban")
-			if !wasInstalled {
-				if err := runCmd("apt-get", "install", "-y", "fail2ban"); err != nil {
-					return nil, err
-				}
-			}
-			original, existed, err := ReadFileOrEmpty(fail2banJailLocalPath)
-			if err != nil {
-				return nil, err
-			}
-			updated := ensureSSHDJail(string(original))
-			if writeErr := writeFile(fail2banJailLocalPath, []byte(updated), 0o644); writeErr != nil {
-				return nil, writeErr
-			}
-			if enableErr := runCmd("systemctl", "enable", "--now", "fail2ban"); enableErr != nil {
-				return nil, enableErr
-			}
-			state := fail2banState{WasInstalled: wasInstalled, PrevConfig: original, ConfigExisted: existed}
-			data, err := json.Marshal(state)
-			if err != nil {
-				return nil, fmt.Errorf("marshaling fail2ban revert state: %w", err)
-			}
-			return data, nil
-		},
-		Revert: func(data []byte) error {
-			var state fail2banState
-			if err := json.Unmarshal(data, &state); err != nil {
-				return fmt.Errorf("unmarshaling fail2ban revert state: %w", err)
-			}
-			if state.ConfigExisted {
-				if err := writeFile(fail2banJailLocalPath, state.PrevConfig, 0o644); err != nil {
-					return err
-				}
-			} else if err := removeFile(fail2banJailLocalPath); err != nil {
-				return err
-			}
-			if !state.WasInstalled {
-				_ = runCmd("systemctl", "disable", "--now", "fail2ban")
-				return runCmd("apt-get", "remove", "-y", "fail2ban")
-			}
-			return runCmd("systemctl", "restart", "fail2ban")
-		},
+		Check:       func() (bool, error) { return fail2banCheck(path, run) },
+		Apply:       func() ([]byte, error) { return fail2banApply(path, run, pkgInstalled) },
+		Revert:      func(data []byte) error { return fail2banRevert(data, path, run) },
 	}
+}
+
+// fail2banCheck reports whether fail2ban is active with an enabled, port-
+// scoped [sshd] jail in the config at path. Effects (systemctl, file read)
+// are at the edges via the injected runner.
+func fail2banCheck(path string, run cmdRunner) (bool, error) {
+	if err := run("systemctl", "is-active", "--quiet", "fail2ban"); err != nil {
+		return false, nil //nolint:nilerr // service not active means the check is simply unsatisfied
+	}
+	content, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return false, err
+	}
+	return existed && SSHDJailEnabled(string(content)) && SSHDBanactionScoped(string(content)), nil
+}
+
+// fail2banApply installs fail2ban if needed, patches the [sshd] jail into
+// the config at path, enables the service, and returns the JSON revert state.
+func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]byte, error) {
+	wasInstalled := pkgInstalled("fail2ban")
+	if !wasInstalled {
+		if err := run("apt-get", "install", "-y", "fail2ban"); err != nil {
+			return nil, err
+		}
+	}
+	original, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return nil, err
+	}
+	updated := ensureSSHDJail(string(original))
+	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
+		return nil, writeErr
+	}
+	if enableErr := run("systemctl", "enable", "--now", "fail2ban"); enableErr != nil {
+		return nil, enableErr
+	}
+	state := fail2banState{WasInstalled: wasInstalled, PrevConfig: original, ConfigExisted: existed}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling fail2ban revert state: %w", err)
+	}
+	return data, nil
+}
+
+// fail2banRevert restores the config at path (or removes it if it didn't
+// exist) and undoes the install/enable using the JSON revert state.
+func fail2banRevert(data []byte, path string, run cmdRunner) error {
+	var state fail2banState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshaling fail2ban revert state: %w", err)
+	}
+	if state.ConfigExisted {
+		if err := writeFile(path, state.PrevConfig, 0o644); err != nil {
+			return err
+		}
+	} else if err := removeFile(path); err != nil {
+		return err
+	}
+	if !state.WasInstalled {
+		_ = run("systemctl", "disable", "--now", "fail2ban")
+		return run("apt-get", "remove", "-y", "fail2ban")
+	}
+	return run("systemctl", "restart", "fail2ban")
 }
 
 // fail2banWarn flags hosts where pinning banaction ourselves may not be the

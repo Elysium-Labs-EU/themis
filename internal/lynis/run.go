@@ -103,26 +103,41 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 		}
 	}
 
-	runBin, runArgs := priorityWrap(exec.LookPath, lynisBin, lynisArgs(opts))
-	cmd := exec.CommandContext(ctx, runBin, runArgs...) //nolint:gosec // runBin resolved above from PATH or a fixed allowlist, not user input
-	if runErr := cmd.Run(); runErr != nil {
-		var exitErr *exec.ExitError
-		// Lynis exits non-zero when it has warnings/suggestions; only
-		// treat a missing report as a hard failure here.
-		if !errors.As(runErr, &exitErr) {
-			return nil, fmt.Errorf("running lynis audit: %w", runErr)
-		}
+	if runErr := runLynisAudit(ctx, lynisBin, opts); runErr != nil {
+		return nil, runErr
 	}
 
-	f, err := os.Open(ReportPath)
+	return readReport(ReportPath)
+}
+
+// runLynisAudit runs `lynis audit system`, tolerating the non-zero exit
+// lynis returns when it merely has warnings/suggestions — only a genuine
+// failure to run (e.g. the binary vanished) is treated as an error.
+func runLynisAudit(ctx context.Context, lynisBin string, opts Options) error {
+	runBin, runArgs := priorityWrap(exec.LookPath, lynisBin, lynisArgs(opts))
+	cmd := exec.CommandContext(ctx, runBin, runArgs...) //nolint:gosec // runBin resolved above from PATH or a fixed allowlist, not user input
+	runErr := cmd.Run()
+	if runErr == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(runErr, &exitErr) {
+		return fmt.Errorf("running lynis audit: %w", runErr)
+	}
+	return nil
+}
+
+// readReport opens the lynis report at path and returns its parsed findings.
+func readReport(path string) ([]Finding, error) {
+	f, err := os.Open(path) //nolint:gosec // path is a fixed report-file constant at the call site
 	if err != nil {
-		return nil, fmt.Errorf("opening lynis report %s: %w", ReportPath, err)
+		return nil, fmt.Errorf("opening lynis report %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	findings, err := ParseReport(f)
 	if err != nil {
-		return nil, fmt.Errorf("parsing lynis report %s: %w", ReportPath, err)
+		return nil, fmt.Errorf("parsing lynis report %s: %w", path, err)
 	}
 	return findings, nil
 }

@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -301,6 +303,139 @@ func TestRunUpdateIncludePreUsesReleasesList(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "v0.1.0 -> v0.2.0-rc.1") {
 		t.Errorf("output = %q, want it to mention the pre-release version", buf.String())
+	}
+}
+
+func TestDownloadFileSuccess(t *testing.T) {
+	body := []byte("themis binary bytes")
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	})
+
+	dst := filepath.Join(t.TempDir(), "out")
+	if err := downloadFile(context.Background(), "https://codeberg.org/dl/themis", dst); err != nil {
+		t.Fatalf("downloadFile: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != string(body) {
+		t.Errorf("downloaded content = %q, want %q", got, body)
+	}
+}
+
+func TestDownloadFileNonOKStatus(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	dst := filepath.Join(t.TempDir(), "out")
+	if err := downloadFile(context.Background(), "https://codeberg.org/dl/themis", dst); err == nil {
+		t.Fatal("expected an error for a non-200 response")
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	cases := []struct {
+		name    string
+		current string
+		latest  string
+		want    bool
+	}{
+		{"older than latest", "v0.1.0", "v0.2.0", false},
+		{"equal", "v0.2.0", "v0.2.0", true},
+		{"newer than latest", "v0.3.0", "v0.2.0", true},
+		{"bare current version normalized", "0.2.0", "v0.2.0", true},
+		{"invalid latest means update assumed", "v0.1.0", "not-semver", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isUpToDate(tc.current, tc.latest); got != tc.want {
+				t.Errorf("isUpToDate(%q, %q) = %v, want %v", tc.current, tc.latest, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveReleaseAssets(t *testing.T) {
+	rel := Release{
+		TagName: "v1.0.0",
+		Assets: []Asset{
+			{Name: "themis-linux-amd64", DownloadURL: "https://codeberg.org/x/amd64"},
+			{Name: "sha256sums.txt", DownloadURL: "https://codeberg.org/x/sums"},
+		},
+	}
+
+	binary, checksums, err := resolveReleaseAssets(rel, "amd64")
+	if err != nil {
+		t.Fatalf("resolveReleaseAssets: %v", err)
+	}
+	if binary.Name != "themis-linux-amd64" || checksums.Name != "sha256sums.txt" {
+		t.Fatalf("got binary=%q checksums=%q", binary.Name, checksums.Name)
+	}
+
+	if _, _, err := resolveReleaseAssets(rel, "arm64"); err == nil {
+		t.Error("expected an error when no binary asset matches the arch")
+	}
+
+	noSums := Release{TagName: "v1.0.0", Assets: []Asset{{Name: "themis-linux-amd64"}}}
+	if _, _, err := resolveReleaseAssets(noSums, "amd64"); err == nil {
+		t.Error("expected an error when sha256sums.txt is missing")
+	}
+}
+
+// TestRunUpdateHappyPath drives runUpdate all the way through download,
+// checksum verification, and in-place replacement against a fake release
+// server, confirming the on-disk binary is swapped for the new bytes.
+func TestRunUpdateHappyPath(t *testing.T) {
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		t.Skipf("unsupported test arch %q", arch)
+	}
+	t.Setenv("HOME", t.TempDir()) // no installed completions → refresh step is a no-op
+
+	assetName := "themis-linux-" + arch
+	binContent := []byte("new themis binary\n")
+	sum := sha256.Sum256(binContent)
+	checksums := hex.EncodeToString(sum[:]) + "  " + assetName + "\n"
+
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
+				`{"name":%q,"browser_download_url":"https://codeberg.org/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://codeberg.org/dl/sha256sums.txt"}]}`,
+				assetName, assetName)
+		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
+			_, _ = w.Write([]byte(checksums))
+		case strings.HasSuffix(r.URL.Path, assetName):
+			_, _ = w.Write(binContent)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	})
+
+	exePath := filepath.Join(t.TempDir(), "themis")
+	if err := os.WriteFile(exePath, []byte("old themis"), 0o755); err != nil {
+		t.Fatalf("seeding exe: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	if err := runUpdate(context.Background(), buf, exePath, "v0.1.0", false); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	if !strings.Contains(buf.String(), "updated v0.1.0 -> v9.9.9") {
+		t.Errorf("output = %q, want an updated message", buf.String())
+	}
+
+	got, err := os.ReadFile(exePath)
+	if err != nil {
+		t.Fatalf("reading replaced exe: %v", err)
+	}
+	if string(got) != string(binContent) {
+		t.Errorf("exe not replaced: got %q, want %q", got, binContent)
 	}
 }
 
