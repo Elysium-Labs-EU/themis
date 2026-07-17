@@ -5,6 +5,11 @@ pre-push:
       run: make test-coverage-check
       priority: 1
 
+    crap:
+      glob: "*.go"
+      run: make crap
+      priority: 2
+
 pre-commit:
   commands:
     format:
@@ -26,8 +31,3 @@ pre-commit:
       glob: "*.go"
       run: go test -short ./...
       priority: 3
-
-    crap:
-      glob: "*.go"
-      run: make crap
-      priority: 4
