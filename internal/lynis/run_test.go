@@ -2,9 +2,41 @@ package lynis
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
+
+func TestReadReportParsesFindings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lynis-report.dat")
+	content := "suggestion[]=SSH-7408|Harden SSH config|-|Change PermitRootLogin|\n" +
+		"warning[]=FIRE-4590|No firewall active|-|Enable ufw|\n" +
+		"# unrelated report line, ignored\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("seeding report: %v", err)
+	}
+
+	findings, err := readReport(path)
+	if err != nil {
+		t.Fatalf("readReport: %v", err)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("got %d findings, want 2: %+v", len(findings), findings)
+	}
+	if findings[0].TestID != "SSH-7408" || findings[0].Kind != "suggestion" {
+		t.Errorf("finding[0] = %+v", findings[0])
+	}
+	if findings[1].TestID != "FIRE-4590" || findings[1].Kind != "warning" {
+		t.Errorf("finding[1] = %+v", findings[1])
+	}
+}
+
+func TestReadReportMissingFile(t *testing.T) {
+	if _, err := readReport(filepath.Join(t.TempDir(), "does-not-exist.dat")); err == nil {
+		t.Fatal("expected an error for a missing report file")
+	}
+}
 
 func TestLynisPathWithPrefersPATH(t *testing.T) {
 	lookPath := func(name string) (string, error) { return "/custom/path/lynis", nil }
