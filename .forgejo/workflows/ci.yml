@@ -39,6 +39,40 @@ jobs:
       - name: Run tests
         run: go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
 
+  integration-test:
+    name: Integration Test (root)
+    runs-on: codeberg-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+      volumes:
+        - gomodcache-themis:/root/go/pkg/mod
+        - gobuildcache-themis:/root/.cache/go-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install dependencies
+        run: go mod download
+
+      # lynis powers the lynis audit integration test; the fix apply/revert
+      # tests use apt/dpkg (present on this image). Tests that additionally
+      # need systemd as PID 1 (fail2ban, firewall) self-skip via
+      # requireSystemd() when this container has no systemd — safe either way.
+      - name: Install lynis
+        run: |
+          apt-get update
+          apt-get install -y lynis
+
+      # codeberg-small already runs jobs as root, so no sudo needed.
+      - name: Run integration tests
+        run: go test ./... -tags integration -v -count=1
+
   crap:
     name: CRAP Score
     runs-on: codeberg-small
