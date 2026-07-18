@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -26,24 +29,70 @@ type Snapshot struct {
 	Entries   []Entry   `json:"entries"`
 }
 
-// Save writes snap to path, creating parent directories as needed.
+// Save writes snap to path, creating parent directories as needed. The
+// write goes to a temp file in the same directory and is renamed into
+// place: a rename replaces whatever directory entry currently sits at
+// path — including a symlink planted there — without ever writing
+// through it, and it is atomic, so a crash mid-write can't leave a
+// truncated/partial state.json for a later Load to trust.
 func Save(path string, snap Snapshot) error {
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("creating state dir for %s: %w", path, err)
+	dir := filepath.Dir(path)
+	if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
+		return fmt.Errorf("creating state dir for %s: %w", path, mkdirErr)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+
+	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp state file in %s: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }() // no-op once the rename below succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("writing state %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("writing state %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("writing state %s: %w", path, err)
 	}
 	return nil
 }
 
-// Load reads the snapshot written by the most recent Save.
+// Load reads the snapshot written by the most recent Save. It first
+// treats path as hostile: a locally-writable state directory would let
+// another user plant a symlink or swap in their own state.json ahead of
+// `themis rollback` running as root, whose entries.revert_data flows
+// straight into root-privileged file writes and commands (see
+// internal/fix). O_NOFOLLOW makes the open itself refuse a symlink at
+// path, and the ownership/mode check runs against the opened file
+// descriptor (not a second stat of the path) so there is no window
+// between the check and the read for the file to be swapped.
 func Load(path string) (Snapshot, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is the fixed state-file constant, not user input
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) //nolint:gosec // path is the fixed state-file constant, not user input; O_NOFOLLOW rejects symlinks
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("reading state %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("reading state %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return Snapshot{}, fmt.Errorf("state %s failed integrity check: not a regular file", path)
+	}
+	if verifyErr := verifyOwnerAndMode(info, os.Geteuid()); verifyErr != nil {
+		return Snapshot{}, fmt.Errorf("state %s failed integrity check: %w", path, verifyErr)
+	}
+
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("reading state %s: %w", path, err)
 	}
@@ -52,6 +101,24 @@ func Load(path string) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("unmarshaling state %s: %w", path, err)
 	}
 	return snap, nil
+}
+
+// verifyOwnerAndMode rejects a state file that isn't owned by wantUID or
+// that grants group/other any access — either means someone besides the
+// user running themis could have written or swapped it. Pure — info and
+// wantUID are already-resolved inputs, no I/O here.
+func verifyOwnerAndMode(info fs.FileInfo, wantUID int) error {
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("mode %04o is accessible to group/other, want 0600", perm)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("cannot determine file owner")
+	}
+	if int(stat.Uid) != wantUID {
+		return fmt.Errorf("owned by uid %d, want %d", stat.Uid, wantUID)
+	}
+	return nil
 }
 
 // Clear removes the state file after a successful rollback. Missing file
