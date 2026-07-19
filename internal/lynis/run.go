@@ -7,44 +7,13 @@ import (
 	"os"
 	"os/exec"
 
+	"codeberg.org/Elysium_Labs/themis/internal/binpath"
 	"codeberg.org/Elysium_Labs/themis/internal/ui"
 )
 
 // ReportPath is the default location Lynis writes its machine-readable
 // report to.
 const ReportPath = "/var/log/lynis-report.dat"
-
-// sbinFallbacks are common install locations for lynis that root's $PATH
-// can still exclude on some distros (e.g. Debian puts it in /usr/sbin) —
-// the resulting "not installed" error would be wrong: the binary is
-// there, just not found. Check these before giving up.
-var sbinFallbacks = []string{"/usr/sbin/lynis", "/sbin/lynis"}
-
-// lynisPath resolves the lynis binary: $PATH first, falling back to
-// common sbin locations non-root PATHs often omit.
-func lynisPath() (string, error) {
-	return lynisPathWith(exec.LookPath, fileExists, sbinFallbacks)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// lynisPathWith does the actual resolution, with lookPath/exists/fallbacks
-// parameterized so the fallback behavior is testable without needing a
-// real /usr/sbin/lynis on the test machine.
-func lynisPathWith(lookPath func(string) (string, error), exists func(string) bool, fallbacks []string) (string, error) {
-	if p, err := lookPath("lynis"); err == nil {
-		return p, nil
-	}
-	for _, p := range fallbacks {
-		if exists(p) {
-			return p, nil
-		}
-	}
-	return "", exec.ErrNotFound
-}
 
 // Options configures how Audit runs lynis.
 type Options struct {
@@ -64,17 +33,22 @@ func lynisArgs(opts Options) []string {
 	return args
 }
 
-// priorityWrap prefixes bin/args with ionice and/or nice, when present on
-// PATH, so a full audit doesn't starve other work on resource-constrained
-// or stateful hosts. It doesn't reduce total CPU time, only priority.
-// Falls back to running bin directly if neither tool is found (e.g.
-// ionice doesn't exist on macOS). Pure given lookPath — no I/O itself.
-func priorityWrap(lookPath func(string) (string, error), bin string, args []string) (string, []string) {
+// priorityWrap prefixes bin/args with ionice and/or nice, when present in
+// a trusted dir, so a full audit doesn't starve other work on resource-
+// constrained or stateful hosts. It doesn't reduce total CPU time, only
+// priority. Falls back to running bin directly if neither tool is found
+// (e.g. ionice doesn't exist on macOS). resolve is parameterized (rather
+// than calling binpath.Resolve directly) so tests can drive it without
+// touching the filesystem; production wires binpath.Resolve, never
+// exec.LookPath — themis runs as root, and a $PATH search for "nice"
+// could be shadowed by something planted earlier in an inherited PATH.
+// Pure given resolve — no I/O itself.
+func priorityWrap(resolve func(string) (string, error), bin string, args []string) (string, []string) {
 	cmdArgs := append([]string{bin}, args...)
-	if p, err := lookPath("nice"); err == nil {
+	if p, err := resolve("nice"); err == nil {
 		cmdArgs = append([]string{p, "-n", "19"}, cmdArgs...)
 	}
-	if p, err := lookPath("ionice"); err == nil {
+	if p, err := resolve("ionice"); err == nil {
 		cmdArgs = append([]string{p, "-c3"}, cmdArgs...)
 	}
 	return cmdArgs[0], cmdArgs[1:]
@@ -95,11 +69,11 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 		}
 	}
 
-	lynisBin, err := lynisPath()
+	lynisBin, err := binpath.Resolve("lynis")
 	if err != nil {
 		return nil, &ui.UserError{
 			Err:  errors.New("lynis not found"),
-			Hint: "apt install lynis (already installed but not on PATH? check /usr/sbin, /sbin)",
+			Hint: "apt install lynis (already installed but not in a trusted dir? check /usr/sbin, /sbin)",
 		}
 	}
 
@@ -113,9 +87,15 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 // runLynisAudit runs `lynis audit system`, tolerating the non-zero exit
 // lynis returns when it merely has warnings/suggestions — only a genuine
 // failure to run (e.g. the binary vanished) is treated as an error.
+// Lynis itself shells out to dpkg, sysctl, and more as part of its audit,
+// so cmd.Env pins its $PATH to binpath's trusted dirs too — otherwise
+// those grandchild execs would still resolve through the inherited
+// (and, since themis runs as root, potentially attacker-influenced) $PATH,
+// even though the lynis binary itself was resolved safely above.
 func runLynisAudit(ctx context.Context, lynisBin string, opts Options) error {
-	runBin, runArgs := priorityWrap(exec.LookPath, lynisBin, lynisArgs(opts))
-	cmd := exec.CommandContext(ctx, runBin, runArgs...) //nolint:gosec // runBin resolved above from PATH or a fixed allowlist, not user input
+	runBin, runArgs := priorityWrap(binpath.Resolve, lynisBin, lynisArgs(opts))
+	cmd := exec.CommandContext(ctx, runBin, runArgs...) //nolint:gosec // runBin resolved above from a fixed trusted-dir allowlist, not $PATH or user input
+	cmd.Env = binpath.Environ(os.Environ())
 	runErr := cmd.Run()
 	if runErr == nil {
 		return nil

@@ -1,0 +1,9 @@
+{
+  "updated_at": "2026-07-19T02:02:32.582467+02:00",
+  "source": "gate",
+  "summary": "escalated, awaiting human decision",
+  "reasons": [
+    "touches behavior-critical path \"internal/fix/fileutil.go\" (matched \"fix\") — always reviewed"
+  ],
+  "approved": false
+}

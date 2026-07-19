@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"codeberg.org/Elysium_Labs/themis/internal/binpath"
 )
 
 // cmdRunner runs a command, reporting failure as an error. Real fixes wire
@@ -52,9 +54,20 @@ func removeFile(path string) error {
 }
 
 // runCmd runs name with args, returning combined output wrapped into the
-// error on failure so callers get actionable context.
+// error on failure so callers get actionable context. name is resolved
+// against binpath's trusted dirs rather than $PATH, so a fixed literal
+// like "systemctl" can't be shadowed by something planted earlier in an
+// inherited (and, since themis runs as root, potentially attacker-
+// influenced) $PATH. The child's own $PATH is pinned the same way, so a
+// tool that shells out internally (e.g. apt-get invoking dpkg) can't be
+// tricked into a planted binary either.
 func runCmd(name string, args ...string) error {
-	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // name/args are fixed literals at each call site, not user input
+	bin, err := binpath.Resolve(name)
+	if err != nil {
+		return fmt.Errorf("resolving %s: %w", name, err)
+	}
+	cmd := exec.CommandContext(context.Background(), bin, args...) //nolint:gosec // bin resolved from a fixed trusted-dir allowlist, not $PATH or user input
+	cmd.Env = binpath.Environ(os.Environ())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("running %s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
@@ -63,7 +76,12 @@ func runCmd(name string, args ...string) error {
 
 // runCmdOutput is like runCmd but returns stdout+stderr on success too.
 func runCmdOutput(name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // name/args are fixed literals at each call site, not user input
+	bin, err := binpath.Resolve(name)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s: %w", name, err)
+	}
+	cmd := exec.CommandContext(context.Background(), bin, args...) //nolint:gosec // bin resolved from a fixed trusted-dir allowlist, not $PATH or user input
+	cmd.Env = binpath.Environ(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("running %s %s: %w", name, strings.Join(args, " "), err)
