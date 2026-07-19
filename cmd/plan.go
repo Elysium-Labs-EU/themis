@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
-	"codeberg.org/Elysium_Labs/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/fix"
 	"github.com/spf13/cobra"
 )
 

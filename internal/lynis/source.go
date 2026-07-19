@@ -3,7 +3,7 @@ package lynis
 import (
 	"context"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
 )
 
 // Source runs Lynis as a pluggable audit.Source.

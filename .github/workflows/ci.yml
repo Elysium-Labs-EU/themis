@@ -14,12 +14,7 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-themis:/root/go/pkg/mod
-        - gobuildcache-themis:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -28,7 +23,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Install dependencies
         run: go mod download
@@ -41,12 +35,7 @@ jobs:
 
   integration-test:
     name: Integration Test (root)
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-themis:/root/go/pkg/mod
-        - gobuildcache-themis:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -55,33 +44,31 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Install dependencies
         run: go mod download
 
-      # lynis powers the B3 audit test; if this restricted runner can't reach
-      # the apt mirror the install is best-effort and the test self-skips
-      # (t.Skip on missing lynis) rather than failing the job.
+      # lynis powers the B3 audit test; if the runner can't reach the apt
+      # mirror the install is best-effort and the test self-skips (t.Skip on
+      # missing lynis) rather than failing the job.
       - name: Install lynis (best-effort)
         continue-on-error: true
         run: |
-          apt-get update
-          apt-get install -y lynis
+          sudo apt-get update
+          sudo apt-get install -y lynis
 
-      # codeberg-small already runs jobs as root, so no sudo needed.
-      # Here THEMIS_INTEGRATION_MUTATE is intentionally UNSET, so the
-      # host-mutating B1 fix apply/revert tests self-skip (they install
-      # packages + enable services, which the container can't support). They
-      # run for real on OrbStack via `make test-integration-orb`. The B2
-      # hermetic self-update test is fully self-contained and runs here; B3
-      # lynis runs or skips depending on the install step above.
+      # THEMIS_INTEGRATION_MUTATE is intentionally UNSET, so the host-mutating
+      # B1 fix apply/revert tests self-skip (they install packages + enable
+      # services, which CI can't support). They run for real on OrbStack via
+      # `make test-integration-orb`. The B2 hermetic self-update test is fully
+      # self-contained and runs here; B3 lynis runs or skips depending on the
+      # install step above.
       - name: Run integration tests
         run: go test ./... -tags integration -v -count=1
 
   crap:
     name: CRAP Score
-    runs-on: codeberg-small
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -104,12 +91,7 @@ jobs:
 
   verify-build:
     name: Verify Build
-    runs-on: codeberg-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
-      volumes:
-        - gomodcache-themis:/root/go/pkg/mod
-        - gobuildcache-themis:/root/.cache/go-build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -118,7 +100,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false
 
       - name: Verify code compiles
         run: go build -v ./...

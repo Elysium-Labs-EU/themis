@@ -8,7 +8,7 @@ GOBIN=./bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE ?= $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
-VERSION_PKG := codeberg.org/Elysium_Labs/themis/internal/buildinfo
+VERSION_PKG := github.com/Elysium-Labs-EU/themis/internal/buildinfo
 LDFLAGS := -ldflags "-X '$(VERSION_PKG).Version=$(VERSION)' -X '$(VERSION_PKG).GitCommit=$(COMMIT)' -X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)' -w -s"
 
 help: ## Show this help

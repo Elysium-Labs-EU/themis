@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 

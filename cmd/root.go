@@ -5,7 +5,7 @@ package cmd
 import (
 	"fmt"
 
-	"codeberg.org/Elysium_Labs/themis/internal/buildinfo"
+	"github.com/Elysium-Labs-EU/themis/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/Elysium_Labs/themis/internal/binpath"
+	"github.com/Elysium-Labs-EU/themis/internal/binpath"
 )
 
 // Integration tests here drive the REAL lynis binary end to end. They

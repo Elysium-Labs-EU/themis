@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"codeberg.org/Elysium_Labs/themis/internal/fix"
-	"codeberg.org/Elysium_Labs/themis/internal/state"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/state"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 

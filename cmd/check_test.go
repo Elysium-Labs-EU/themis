@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 )
 
 func TestPartitionFindings(t *testing.T) {

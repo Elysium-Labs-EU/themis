@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/exec"
 
-	"codeberg.org/Elysium_Labs/themis/internal/binpath"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/binpath"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 )
 
 // ReportPath is the default location Lynis writes its machine-readable

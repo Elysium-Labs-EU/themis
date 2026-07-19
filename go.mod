@@ -1,4 +1,4 @@
-module codeberg.org/Elysium_Labs/themis
+module github.com/Elysium-Labs-EU/themis
 
 go 1.26.5
 
