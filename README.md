@@ -35,6 +35,10 @@ go build -o themis
 
 Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for the audit.
 
+### Release integrity
+
+`install.sh` and `themis system update` only download from `codeberg.org` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
+
 ## Quick Start
 
 ```bash
