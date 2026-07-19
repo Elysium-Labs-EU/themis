@@ -7,14 +7,15 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"codeberg.org/Elysium_Labs/themis/internal/binpath"
 )
 
 // Integration tests here drive the REAL lynis binary end to end. They
 // require:
 //   - Linux
 //   - root (lynis audit system needs it, and ReportPath is root-owned)
-//   - lynis installed on PATH or in the /usr/sbin//sbin fallbacks the code
-//     already resolves
+//   - lynis installed in one of binpath's trusted dirs (/usr/sbin, /sbin, ...)
 //
 // Run via: make test-integration
 //   or on OrbStack: orb run -m debian -u root bash -lc \
@@ -32,11 +33,11 @@ func requireLynis(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("requires root")
 	}
-	// lynisPath resolves $PATH first, then the /usr/sbin, /sbin fallbacks the
-	// production code handles. Skip (not fail) when the binary is genuinely
+	// binpath.Resolve checks the same trusted dirs the production code
+	// resolves lynis from. Skip (not fail) when the binary is genuinely
 	// absent — the CI runner may not have it.
-	if _, err := lynisPath(); err != nil {
-		t.Skip("lynis not installed (not on PATH or /usr/sbin//sbin)")
+	if _, err := binpath.Resolve("lynis"); err != nil {
+		t.Skip("lynis not installed (not in a trusted dir: /usr/sbin, /sbin, ...)")
 	}
 }
 
