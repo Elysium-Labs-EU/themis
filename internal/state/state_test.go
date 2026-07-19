@@ -1,6 +1,7 @@
 package state
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,5 +61,53 @@ func TestClearRemovesFile(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected Load to fail after Clear")
+	}
+}
+
+func TestLoadRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real.json")
+	if err := Save(target, Snapshot{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	link := filepath.Join(dir, "state.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if _, err := Load(link); err == nil {
+		t.Fatal("expected Load to reject a symlinked state file")
+	}
+}
+
+func TestLoadRejectsGroupOrOtherAccessibleMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := Save(path, Snapshot{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected Load to reject a group-readable state file")
+	}
+}
+
+func TestVerifyOwnerAndModeRejectsWrongUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := Save(path, Snapshot{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+
+	if err := verifyOwnerAndMode(info, os.Geteuid()+1); err == nil {
+		t.Fatal("expected verifyOwnerAndMode to reject a UID mismatch")
+	}
+	if err := verifyOwnerAndMode(info, os.Geteuid()); err != nil {
+		t.Errorf("verifyOwnerAndMode with the real UID: %v", err)
 	}
 }
