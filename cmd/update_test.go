@@ -20,7 +20,7 @@ import (
 )
 
 // hostRedirectTransport rewrites any request to hit addr over plain HTTP.
-// Lets tests intercept the hardcoded codeberg.org URLs in fetchLatestRelease
+// Lets tests intercept the hardcoded github.com URLs in fetchLatestRelease
 // and downloadFile.
 type hostRedirectTransport struct{ addr string }
 
@@ -126,9 +126,9 @@ func TestFetchLatestReleaseIncludePreBadJSON(t *testing.T) {
 func TestReleaseAssetFor(t *testing.T) {
 	rel := Release{
 		Assets: []Asset{
-			{Name: "themis-linux-amd64", DownloadURL: "https://codeberg.org/x/amd64"},
-			{Name: "themis-linux-arm64", DownloadURL: "https://codeberg.org/x/arm64"},
-			{Name: "sha256sums.txt", DownloadURL: "https://codeberg.org/x/sums"},
+			{Name: "themis-linux-amd64", DownloadURL: "https://github.com/x/amd64"},
+			{Name: "themis-linux-arm64", DownloadURL: "https://github.com/x/arm64"},
+			{Name: "sha256sums.txt", DownloadURL: "https://github.com/x/sums"},
 		},
 	}
 
@@ -151,13 +151,13 @@ func TestDownloadFileRejectsUntrustedHost(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "out")
 	err := downloadFile(context.Background(), "https://evil.example.com/themis", dst)
 	if err == nil {
-		t.Fatal("expected an error for a non-codeberg.org host")
+		t.Fatal("expected an error for a non-github.com host")
 	}
 }
 
 func TestDownloadFileRejectsNonHTTPS(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "out")
-	err := downloadFile(context.Background(), "http://codeberg.org/themis", dst)
+	err := downloadFile(context.Background(), "http://github.com/themis", dst)
 	if err == nil {
 		t.Fatal("expected an error for a non-https scheme")
 	}
@@ -316,7 +316,7 @@ func TestDownloadFileSuccess(t *testing.T) {
 	})
 
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := downloadFile(context.Background(), "https://codeberg.org/dl/themis", dst); err != nil {
+	if err := downloadFile(context.Background(), "https://github.com/dl/themis", dst); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 	got, err := os.ReadFile(dst)
@@ -334,7 +334,7 @@ func TestDownloadFileNonOKStatus(t *testing.T) {
 	})
 
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := downloadFile(context.Background(), "https://codeberg.org/dl/themis", dst); err == nil {
+	if err := downloadFile(context.Background(), "https://github.com/dl/themis", dst); err == nil {
 		t.Fatal("expected an error for a non-200 response")
 	}
 }
@@ -365,8 +365,8 @@ func TestResolveReleaseAssets(t *testing.T) {
 	rel := Release{
 		TagName: "v1.0.0",
 		Assets: []Asset{
-			{Name: "themis-linux-amd64", DownloadURL: "https://codeberg.org/x/amd64"},
-			{Name: "sha256sums.txt", DownloadURL: "https://codeberg.org/x/sums"},
+			{Name: "themis-linux-amd64", DownloadURL: "https://github.com/x/amd64"},
+			{Name: "sha256sums.txt", DownloadURL: "https://github.com/x/sums"},
 		},
 	}
 
@@ -408,8 +408,8 @@ func TestRunUpdateHappyPath(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
-				`{"name":%q,"browser_download_url":"https://codeberg.org/dl/%s"},`+
-				`{"name":"sha256sums.txt","browser_download_url":"https://codeberg.org/dl/sha256sums.txt"}]}`,
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"}]}`,
 				assetName, assetName)
 		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
 			_, _ = w.Write([]byte(checksums))
@@ -470,8 +470,8 @@ func TestHostArch(t *testing.T) {
 func TestReleaseSignatureAsset(t *testing.T) {
 	rel := Release{
 		Assets: []Asset{
-			{Name: "themis-linux-amd64", DownloadURL: "https://codeberg.org/x/amd64"},
-			{Name: "sha256sums.txt.sig", DownloadURL: "https://codeberg.org/x/sig"},
+			{Name: "themis-linux-amd64", DownloadURL: "https://github.com/x/amd64"},
+			{Name: "sha256sums.txt.sig", DownloadURL: "https://github.com/x/sig"},
 		},
 	}
 	sig, ok := rel.SignatureAsset()
@@ -567,7 +567,7 @@ func TestVerifyReleaseSignaturePresentButInvalidFails(t *testing.T) {
 
 	rel := Release{
 		TagName: "v1.0.0",
-		Assets:  []Asset{{Name: "sha256sums.txt.sig", DownloadURL: "https://codeberg.org/x/sig"}},
+		Assets:  []Asset{{Name: "sha256sums.txt.sig", DownloadURL: "https://github.com/x/sig"}},
 	}
 	buf := &bytes.Buffer{}
 
@@ -601,8 +601,8 @@ func TestRunUpdateNoSignatureAssetStillUpdates(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
-				`{"name":%q,"browser_download_url":"https://codeberg.org/dl/%s"},`+
-				`{"name":"sha256sums.txt","browser_download_url":"https://codeberg.org/dl/sha256sums.txt"}]}`,
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"}]}`,
 				assetName, assetName)
 		case strings.HasSuffix(r.URL.Path, "sha256sums.txt"):
 			_, _ = w.Write([]byte(checksums))
@@ -651,9 +651,9 @@ func TestRunUpdateInvalidSignatureBlocksInstall(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[`+
-				`{"name":%q,"browser_download_url":"https://codeberg.org/dl/%s"},`+
-				`{"name":"sha256sums.txt","browser_download_url":"https://codeberg.org/dl/sha256sums.txt"},`+
-				`{"name":"sha256sums.txt.sig","browser_download_url":"https://codeberg.org/dl/sha256sums.txt.sig"}]}`,
+				`{"name":%q,"browser_download_url":"https://github.com/dl/%s"},`+
+				`{"name":"sha256sums.txt","browser_download_url":"https://github.com/dl/sha256sums.txt"},`+
+				`{"name":"sha256sums.txt.sig","browser_download_url":"https://github.com/dl/sha256sums.txt.sig"}]}`,
 				assetName, assetName)
 		case strings.HasSuffix(r.URL.Path, "sha256sums.txt.sig"):
 			_, _ = w.Write([]byte("forged, does not match the embedded public key"))

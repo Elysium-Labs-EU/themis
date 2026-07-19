@@ -3,8 +3,8 @@ package native
 import (
 	"context"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
-	"codeberg.org/Elysium_Labs/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/fix"
 )
 
 const unattendedUpgradesConfigPath = "/etc/apt/apt.conf.d/50unattended-upgrades"

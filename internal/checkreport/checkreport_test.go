@@ -3,7 +3,7 @@ package checkreport
 import (
 	"testing"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
 )
 
 func TestBuildMarksFixTrackedFindingsActionable(t *testing.T) {

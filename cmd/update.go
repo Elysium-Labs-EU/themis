@@ -18,25 +18,29 @@ import (
 	"strings"
 	"time"
 
-	"codeberg.org/Elysium_Labs/themis/internal/buildinfo"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/buildinfo"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 )
 
-const themisRepo = "Elysium_Labs/themis"
+const themisRepo = "Elysium-Labs-EU/themis"
+
+// userAgent is sent on every GitHub API/download request. GitHub's REST API
+// rejects requests with no User-Agent (Gitea/Codeberg did not require one).
+const userAgent = "themis-updater"
 
 var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
 
-// Asset is one file attached to a Codeberg release.
+// Asset is one file attached to a GitHub release.
 type Asset struct {
 	Name        string `json:"name"`
 	DownloadURL string `json:"browser_download_url"`
 }
 
-// Release is the subset of Codeberg's release API response themis needs.
+// Release is the subset of GitHub's release API response themis needs.
 type Release struct {
 	TagName string  `json:"tag_name"`
 	Assets  []Asset `json:"assets"`
@@ -65,7 +69,7 @@ func (r Release) ChecksumsAsset() (Asset, bool) {
 
 // SignatureAsset returns the sha256sums.txt.sig asset — a detached ECDSA
 // signature over sha256sums.txt produced at release time by
-// .forgejo/workflows/release.yml — if the release has one. Releases
+// .github/workflows/release.yml — if the release has one. Releases
 // published before signing was introduced won't have one; see
 // requireReleaseSignature.
 func (r Release) SignatureAsset() (Asset, bool) {
@@ -77,22 +81,25 @@ func (r Release) SignatureAsset() (Asset, bool) {
 	return Asset{}, false
 }
 
-// fetchLatestRelease fetches the latest themis release from Codeberg.
-// Codeberg's "latest" endpoint only ever returns stable (non-prerelease)
+// fetchLatestRelease fetches the latest themis release from GitHub.
+// GitHub's "latest" endpoint only ever returns stable (non-prerelease)
 // releases, so when includePre is true this instead lists all releases
 // (newest first) and returns the first one — the only way to reach a
 // release while every published version is still a pre-release.
 func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
-	reqURL := fmt.Sprintf("https://codeberg.org/api/v1/repos/%s/releases/latest", themisRepo)
+	reqURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", themisRepo)
 	if includePre {
-		reqURL = fmt.Sprintf("https://codeberg.org/api/v1/repos/%s/releases", themisRepo)
+		reqURL = fmt.Sprintf("https://api.github.com/repos/%s/releases", themisRepo)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return Release{}, fmt.Errorf("building release request: %w", err)
 	}
+	// GitHub's API 403s requests with no User-Agent; Accept pins the API version.
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded Codeberg API base, not user input
+	resp, err := httpClient.Do(req) // #nosec G704 -- URL is constructed from a hardcoded GitHub API base, not user input
 	if err != nil {
 		return Release{}, fmt.Errorf("fetching latest release: %w", err)
 	}
@@ -126,8 +133,8 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 // releaseSigningPublicKeyPEM is the ECDSA P-256 public key (SubjectPublicKeyInfo,
 // PEM) used to verify the detached signature over each release's
 // sha256sums.txt. The matching private key lives only as the
-// RELEASE_SIGNING_KEY secret in Codeberg Actions and is used by
-// .forgejo/workflows/release.yml to sign at release time — it is never
+// RELEASE_SIGNING_KEY secret in GitHub Actions and is used by
+// .github/workflows/release.yml to sign at release time — it is never
 // checked into this repo.
 const releaseSigningPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY8W5BambZpRnZnMuWfe2rMixtfcf
@@ -137,7 +144,7 @@ ou2o+sJ4y3wy7AW1QrCOXQUVxaSiwWqzznFsYlFSOvQc6TFA4lYPsm13xQ==
 
 // requireReleaseSignature gates whether a release with no sha256sums.txt.sig
 // asset is refused outright rather than merely warned about. Keep this false
-// until the RELEASE_SIGNING_KEY secret is provisioned in Codeberg Actions
+// until the RELEASE_SIGNING_KEY secret is provisioned in GitHub Actions
 // and the first signed release has shipped — flipping it before then would
 // make every existing release (and install.sh, which tracks main) refuse to
 // install. Once a signed release exists, flip to true so an unsigned or
@@ -145,9 +152,9 @@ ou2o+sJ4y3wy7AW1QrCOXQUVxaSiwWqzznFsYlFSOvQc6TFA4lYPsm13xQ==
 const requireReleaseSignature = false
 
 // allowedDownloadHost is the only host themis will fetch an executable from.
-const allowedDownloadHost = "codeberg.org"
+const allowedDownloadHost = "github.com"
 
-// validateDownloadURL refuses anything but a plain https://codeberg.org URL,
+// validateDownloadURL refuses anything but a plain https://github.com URL,
 // since downloadFile fetches and then executes-in-place a new themis binary.
 // Pure — no I/O.
 func validateDownloadURL(downloadURL string) error {
@@ -162,7 +169,7 @@ func validateDownloadURL(downloadURL string) error {
 }
 
 // downloadFile fetches downloadURL to destPath, refusing any host but
-// https://codeberg.org (see validateDownloadURL).
+// https://github.com (see validateDownloadURL).
 func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 	if err := validateDownloadURL(downloadURL); err != nil {
 		return err
@@ -172,8 +179,9 @@ func downloadFile(ctx context.Context, downloadURL, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("building download request: %w", err)
 	}
+	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := httpClient.Do(req) // #nosec G704 -- downloadURL is validated above to be https://codeberg.org
+	resp, err := httpClient.Do(req) // #nosec G704 -- downloadURL is validated above to be https://github.com
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", downloadURL, err)
 	}

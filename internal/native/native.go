@@ -11,8 +11,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
-	"codeberg.org/Elysium_Labs/themis/internal/binpath"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/binpath"
 )
 
 // Source runs themis's own native checks as a pluggable audit.Source.

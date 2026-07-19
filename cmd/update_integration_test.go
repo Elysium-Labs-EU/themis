@@ -22,7 +22,7 @@ import (
 //	back up current binary -> replace binary in place
 //
 // against a local httptest server (wired in via useHTTPTestServer, which
-// rewrites the hardcoded codeberg.org URLs to the test server). It needs no
+// rewrites the hardcoded github.com URLs to the test server). It needs no
 // root and no special OS, so it also runs on the CI runner.
 //
 // HOME is redirected to a temp dir so runUpdate's completion-refresh step
@@ -33,8 +33,8 @@ import (
 // binContent is served as the asset; sumsContent as the checksums file.
 func serveRelease(t *testing.T, assetName, binContent, sumsContent string) http.HandlerFunc {
 	t.Helper()
-	assetURL := "https://codeberg.org/dl/" + assetName
-	sumsURL := "https://codeberg.org/dl/sha256sums.txt"
+	assetURL := "https://github.com/dl/" + assetName
+	sumsURL := "https://github.com/dl/sha256sums.txt"
 	relJSON := fmt.Sprintf(`{
 		"tag_name": "v99.0.0",
 		"assets": [

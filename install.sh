@@ -11,15 +11,16 @@ readonly DIM='\033[2m'
 readonly NC='\033[0m' # No Color
 
 # Configuration
-readonly REPO="Elysium_Labs/themis"
-readonly CODEBERG_URL="https://codeberg.org"
+readonly REPO="Elysium-Labs-EU/themis"
+readonly GITHUB_URL="https://github.com"
+readonly API_URL="https://api.github.com"
 readonly BINARY_NAME="themis"
 readonly INSTALL_DIR="${THEMIS_INSTALL_DIR:-/usr/local/bin}"
 
 # ECDSA P-256 public key (SubjectPublicKeyInfo, PEM) used to verify the
 # detached signature over each release's sha256sums.txt. Keep in sync with
 # releaseSigningPublicKeyPEM in cmd/update.go — the matching private key
-# lives only as the RELEASE_SIGNING_KEY secret in Codeberg Actions.
+# lives only as the RELEASE_SIGNING_KEY secret in GitHub Actions.
 readonly RELEASE_SIGNING_PUBKEY='-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY8W5BambZpRnZnMuWfe2rMixtfcf
 ou2o+sJ4y3wy7AW1QrCOXQUVxaSiwWqzznFsYlFSOvQc6TFA4lYPsm13xQ==
@@ -56,7 +57,7 @@ usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --local <path>    Use a local binary instead of downloading from Codeberg"
+    echo "  --local <path>    Use a local binary instead of downloading from GitHub"
     echo "  --help            Show this help message"
     echo "  --yes, -y         Skip all confirmation prompts (non-interactive mode)"
     echo ""
@@ -137,7 +138,8 @@ fetch_json_field() {
         response=$(wget -qO- "$url")
     fi
 
-    echo "$response" | grep -o "\"$field\":\"[^\"]*\"" | sed -E 's/"[^"]+":"([^"]+)"/\1/' | head -1
+    # GitHub's API prints "field": "value" (space after colon); tolerate it.
+    echo "$response" | grep -oE "\"$field\": *\"[^\"]*\"" | sed -E 's/"[^"]+": *"([^"]+)"/\1/' | head -1
 }
 
 check_lynis() {
@@ -283,7 +285,7 @@ main() {
         version="${THEMIS_VERSION:-}"
         if [ -z "$version" ]; then
             step "Fetching latest version..."
-            version=$(fetch_json_field "${CODEBERG_URL}/api/v1/repos/${REPO}/releases?limit=1" "tag_name" "$download_tool")
+            version=$(fetch_json_field "${API_URL}/repos/${REPO}/releases?per_page=1" "tag_name" "$download_tool")
 
             if [ -z "$version" ]; then
                 error "Failed to fetch latest version"
@@ -305,7 +307,7 @@ main() {
     if [ -n "$local_binary" ]; then
         echo "  1. Use local binary: ${local_binary}"
     else
-        echo "  1. Download binary from Codeberg"
+        echo "  1. Download binary from GitHub"
     fi
     echo "  2. Install to ${INSTALL_DIR}/${BINARY_NAME}"
     echo ""
@@ -324,7 +326,7 @@ main() {
         echo ""
         step "Downloading ${BINARY_NAME} ${version} for linux-${arch}..."
 
-        local download_url="${CODEBERG_URL}/${REPO}/releases/download/${version}/themis-linux-${arch}"
+        local download_url="${GITHUB_URL}/${REPO}/releases/download/${version}/themis-linux-${arch}"
         local tmp_dir
         tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/themis-install.XXXXXXXX")" || { error "Failed to create secure temp dir"; exit 1; }
         trap 'rm -rf "$tmp_dir"' EXIT
@@ -344,7 +346,7 @@ main() {
         success "Downloaded successfully"
 
         step "Verifying checksum..."
-        local checksums_url="${CODEBERG_URL}/${REPO}/releases/download/${version}/sha256sums.txt"
+        local checksums_url="${GITHUB_URL}/${REPO}/releases/download/${version}/sha256sums.txt"
         local tmp_checksums="${tmp_dir}/${BINARY_NAME}_sha256sums.txt"
 
         if ! download_file "$checksums_url" "$tmp_checksums" "$download_tool"; then
@@ -375,7 +377,7 @@ main() {
         success "Checksum verified"
 
         step "Verifying release signature..."
-        local sig_url="${CODEBERG_URL}/${REPO}/releases/download/${version}/sha256sums.txt.sig"
+        local sig_url="${GITHUB_URL}/${REPO}/releases/download/${version}/sha256sums.txt.sig"
         local tmp_sig="${tmp_dir}/${BINARY_NAME}_sha256sums.txt.sig"
 
         if download_file "$sig_url" "$tmp_sig" "$download_tool" && [ -s "$tmp_sig" ]; then

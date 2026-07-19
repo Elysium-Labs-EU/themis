@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
-	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
 	"github.com/spf13/cobra"
 )
 

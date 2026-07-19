@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"codeberg.org/Elysium_Labs/themis/cmd"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/cmd"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"codeberg.org/Elysium_Labs/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/fix"
 )
 
 func TestResolveFixesCoversWholeRegistry(t *testing.T) {

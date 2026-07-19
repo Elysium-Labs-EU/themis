@@ -6,7 +6,7 @@ package checkreport
 import (
 	"slices"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
 )
 
 // Fix is a themis-tracked fix, resolved against the source test ID it

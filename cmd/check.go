@@ -5,11 +5,11 @@ import (
 	"io"
 	"strings"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
-	"codeberg.org/Elysium_Labs/themis/internal/checkreport"
-	"codeberg.org/Elysium_Labs/themis/internal/lynis"
-	"codeberg.org/Elysium_Labs/themis/internal/native"
-	"codeberg.org/Elysium_Labs/themis/internal/ui"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/lynis"
+	"github.com/Elysium-Labs-EU/themis/internal/native"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 

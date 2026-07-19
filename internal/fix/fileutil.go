@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"codeberg.org/Elysium_Labs/themis/internal/binpath"
+	"github.com/Elysium-Labs-EU/themis/internal/binpath"
 )
 
 // cmdRunner runs a command, reporting failure as an error. Real fixes wire

@@ -3,8 +3,8 @@ package native
 import (
 	"context"
 
-	"codeberg.org/Elysium_Labs/themis/internal/audit"
-	"codeberg.org/Elysium_Labs/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/audit"
+	"github.com/Elysium-Labs-EU/themis/internal/fix"
 )
 
 const fail2banJailLocalPath = "/etc/fail2ban/jail.local"

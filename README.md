@@ -1,6 +1,10 @@
+<p align="center">
+  <img src=".github/logo.svg" alt="themis logo" width="120" height="120">
+</p>
+
 # themis - Automated Debian hardening CLI
 
-[![Codeberg](https://img.shields.io/badge/Codeberg-themis-blue?logo=codeberg)](https://codeberg.org/Elysium_Labs/themis)
+[![GitHub](https://img.shields.io/badge/GitHub-themis-blue?logo=github)](https://github.com/Elysium-Labs-EU/themis)
 
 themis merges findings from pluggable audit sources ([Lynis](https://cisofy.com/lynis/), plus themis-native checks) with a check/plan/apply/rollback workflow. It maps flagged findings to concrete fixes and applies them idempotently with rollback metadata.
 
@@ -16,19 +20,19 @@ themis merges findings from pluggable audit sources ([Lynis](https://cisofy.com/
 
 **curl**
 ```bash
-curl -sSL https://codeberg.org/Elysium_Labs/themis/raw/branch/main/install.sh -o install.sh
+curl -sSL https://raw.githubusercontent.com/Elysium-Labs-EU/themis/main/install.sh -o install.sh
 sudo bash install.sh
 ```
 
 **wget**
 ```bash
-wget https://codeberg.org/Elysium_Labs/themis/raw/branch/main/install.sh
+wget https://raw.githubusercontent.com/Elysium-Labs-EU/themis/main/install.sh
 sudo bash install.sh
 ```
 
 **From source**
 ```bash
-git clone https://codeberg.org/Elysium_Labs/themis
+git clone https://github.com/Elysium-Labs-EU/themis
 cd themis
 go build -o themis
 ```
@@ -37,7 +41,7 @@ Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for
 
 ### Release integrity
 
-`install.sh` and `themis system update` only download from `codeberg.org` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
+`install.sh` and `themis system update` only download from `github.com` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
 
 ## Quick Start
 
