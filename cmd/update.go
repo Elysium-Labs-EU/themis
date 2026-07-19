@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -60,6 +63,20 @@ func (r Release) ChecksumsAsset() (Asset, bool) {
 	return Asset{}, false
 }
 
+// SignatureAsset returns the sha256sums.txt.sig asset — a detached ECDSA
+// signature over sha256sums.txt produced at release time by
+// .forgejo/workflows/release.yml — if the release has one. Releases
+// published before signing was introduced won't have one; see
+// requireReleaseSignature.
+func (r Release) SignatureAsset() (Asset, bool) {
+	for _, a := range r.Assets {
+		if a.Name == "sha256sums.txt.sig" {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
 // fetchLatestRelease fetches the latest themis release from Codeberg.
 // Codeberg's "latest" endpoint only ever returns stable (non-prerelease)
 // releases, so when includePre is true this instead lists all releases
@@ -105,6 +122,27 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 	}
 	return rel, nil
 }
+
+// releaseSigningPublicKeyPEM is the ECDSA P-256 public key (SubjectPublicKeyInfo,
+// PEM) used to verify the detached signature over each release's
+// sha256sums.txt. The matching private key lives only as the
+// RELEASE_SIGNING_KEY secret in Codeberg Actions and is used by
+// .forgejo/workflows/release.yml to sign at release time — it is never
+// checked into this repo.
+const releaseSigningPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY8W5BambZpRnZnMuWfe2rMixtfcf
+ou2o+sJ4y3wy7AW1QrCOXQUVxaSiwWqzznFsYlFSOvQc6TFA4lYPsm13xQ==
+-----END PUBLIC KEY-----
+`
+
+// requireReleaseSignature gates whether a release with no sha256sums.txt.sig
+// asset is refused outright rather than merely warned about. Keep this false
+// until the RELEASE_SIGNING_KEY secret is provisioned in Codeberg Actions
+// and the first signed release has shipped — flipping it before then would
+// make every existing release (and install.sh, which tracks main) refuse to
+// install. Once a signed release exists, flip to true so an unsigned or
+// signature-stripped release can no longer be installed silently.
+const requireReleaseSignature = false
 
 // allowedDownloadHost is the only host themis will fetch an executable from.
 const allowedDownloadHost = "codeberg.org"
@@ -200,6 +238,84 @@ func verifyChecksum(binaryPath, checksumsContent, assetName string) error {
 	if got != want {
 		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", assetName, want, got)
 	}
+	return nil
+}
+
+// parseReleaseSigningPublicKey decodes the embedded release signing public
+// key. Pure — no I/O.
+func parseReleaseSigningPublicKey() (*ecdsa.PublicKey, error) {
+	block, _ := pem.Decode([]byte(releaseSigningPublicKeyPEM))
+	if block == nil {
+		return nil, fmt.Errorf("decoding embedded release signing public key: no PEM block found")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing embedded release signing public key: %w", err)
+	}
+	ecdsaPub, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("embedded release signing public key is %T, want ECDSA", pub)
+	}
+	return ecdsaPub, nil
+}
+
+// verifySignature checks sig — an ASN.1 DER ECDSA signature, as produced by
+// `openssl dgst -sha256 -sign` — against the SHA-256 digest of data, using
+// pub. Pure — no I/O.
+func verifySignature(pub *ecdsa.PublicKey, data, sig []byte) error {
+	digest := sha256.Sum256(data)
+	if !ecdsa.VerifyASN1(pub, digest[:], sig) {
+		return fmt.Errorf("signature does not match")
+	}
+	return nil
+}
+
+// verifyChecksumsSignature checks sig against checksumsData using the
+// embedded release signing public key. Pure — no I/O.
+func verifyChecksumsSignature(checksumsData, sig []byte) error {
+	pub, err := parseReleaseSigningPublicKey()
+	if err != nil {
+		return err
+	}
+	if err := verifySignature(pub, checksumsData, sig); err != nil {
+		return fmt.Errorf("signature does not match sha256sums.txt")
+	}
+	return nil
+}
+
+// verifyReleaseSignature downloads rel's sha256sums.txt.sig into tmpDir and
+// verifies it against checksumsData, writing a status line to out either
+// way.
+//
+// A release with no signature asset is only a hard error once
+// requireReleaseSignature is true (see its doc comment for the rollout
+// plan); until then it's a warning, since sha256 checksum verification
+// alone has already run by the time this is called. A signature asset that
+// fails to verify is always a hard error — that's a stronger integrity
+// signal than "no signature was ever published", so it's never soft-failed.
+func verifyReleaseSignature(ctx context.Context, out io.Writer, rel Release, checksumsData []byte, tmpDir string) error {
+	sigAsset, ok := rel.SignatureAsset()
+	if !ok {
+		if requireReleaseSignature {
+			return &ui.UserError{Err: fmt.Errorf("release %s has no sha256sums.txt.sig", rel.TagName)}
+		}
+		_, _ = fmt.Fprintf(out, "%s release %s has no signature (sha256sums.txt.sig) — checksum-only integrity\n", ui.LabelWarning.Render("warning"), rel.TagName)
+		return nil
+	}
+
+	sigTmp := filepath.Join(tmpDir, "sha256sums.txt.sig")
+	if dlErr := downloadFile(ctx, sigAsset.DownloadURL, sigTmp); dlErr != nil {
+		return fmt.Errorf("downloading signature: %w", dlErr)
+	}
+	sigData, err := os.ReadFile(sigTmp) //nolint:gosec // fixed name in a themis-owned temp dir
+	if err != nil {
+		return fmt.Errorf("reading signature: %w", err)
+	}
+
+	if verifyErr := verifyChecksumsSignature(checksumsData, sigData); verifyErr != nil {
+		return &ui.UserError{Err: fmt.Errorf("signature verification failed for %s: %w — refusing to install", rel.TagName, verifyErr)}
+	}
+	_, _ = fmt.Fprintf(out, "%s signature verified\n", ui.LabelSuccess.Render("✓"))
 	return nil
 }
 
@@ -320,8 +436,9 @@ func resolveReleaseAssets(rel Release, arch string) (binary, checksums Asset, er
 }
 
 // downloadVerifiedBinary downloads the release binary and its checksums into
-// tmpDir, verifies the binary's sha256, and returns the local binary path.
-func downloadVerifiedBinary(ctx context.Context, binary, checksums Asset, tmpDir, latestVer string) (string, error) {
+// tmpDir, verifies the binary's sha256 and (see verifyReleaseSignature) the
+// checksums' signature, and returns the local binary path.
+func downloadVerifiedBinary(ctx context.Context, out io.Writer, rel Release, binary, checksums Asset, tmpDir, latestVer string) (string, error) {
 	binTmp := filepath.Join(tmpDir, "themis")
 	err := ui.WithSpinner(fmt.Sprintf("Downloading %s...", latestVer), func() error {
 		return downloadFile(ctx, binary.DownloadURL, binTmp)
@@ -340,6 +457,11 @@ func downloadVerifiedBinary(ctx context.Context, binary, checksums Asset, tmpDir
 	}
 	if verifyErr := verifyChecksum(binTmp, string(checksumsData), binary.Name); verifyErr != nil {
 		return "", &ui.UserError{Err: verifyErr}
+	}
+	_, _ = fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
+
+	if sigErr := verifyReleaseSignature(ctx, out, rel, checksumsData, tmpDir); sigErr != nil {
+		return "", sigErr
 	}
 	return binTmp, nil
 }
@@ -388,11 +510,10 @@ func runUpdate(ctx context.Context, out io.Writer, exePath, currentVersion strin
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binTmp, err := downloadVerifiedBinary(ctx, binary, checksums, tmpDir, latestVer)
+	binTmp, err := downloadVerifiedBinary(ctx, out, rel, binary, checksums, tmpDir, latestVer)
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "%s checksum verified\n", ui.LabelSuccess.Render("✓"))
 
 	backupPath := exePath + ".backup"
 	if backupErr := copyFile(exePath, backupPath); backupErr != nil {
