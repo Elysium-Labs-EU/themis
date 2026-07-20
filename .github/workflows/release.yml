@@ -179,18 +179,28 @@ jobs:
       - name: Generate changelog section
         run: |
           VERSION="${{ needs.build.outputs.version }}"
-          if [[ "$VERSION" =~ -[a-zA-Z] ]]; then
-            # Pre-release: just diff against the immediately preceding tag.
-            git-cliff --latest --strip header -o changelog-section.md
-          else
-            # Stable release: diff against the previous stable tag (skip rc/pre tags)
-            # so the notes cover everything since the last real release.
-            PREV_STABLE=$(git tag --list 'v*' | grep -Ev -- '-' | sort -V | awk -v v="$VERSION" '$0==v{found=1; next} !found{prev=$0} END{print prev}')
-            if [ -n "$PREV_STABLE" ]; then
-              git-cliff "${PREV_STABLE}..${VERSION}" --strip header -o changelog-section.md
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            # Tag-triggered push: the tag already exists as a resolvable ref,
+            # so git-cliff can diff against it directly.
+            if [[ "$VERSION" =~ -[a-zA-Z] ]]; then
+              # Pre-release: just diff against the immediately preceding tag.
+              git-cliff --latest --strip header -o changelog-section.md
             else
-              git-cliff --tag "$VERSION" --strip header -o changelog-section.md
+              # Stable release: diff against the previous stable tag (skip rc/pre tags)
+              # so the notes cover everything since the last real release.
+              PREV_STABLE=$(git tag --list 'v*' | grep -Ev -- '-' | sort -V | awk -v v="$VERSION" '$0==v{found=1; next} !found{prev=$0} END{print prev}')
+              if [ -n "$PREV_STABLE" ]; then
+                git-cliff "${PREV_STABLE}..${VERSION}" --strip header -o changelog-section.md
+              else
+                git-cliff --tag "$VERSION" --strip header -o changelog-section.md
+              fi
             fi
+          else
+            # workflow_dispatch: $VERSION isn't a real tag yet — action-gh-release
+            # creates it later, once this job succeeds — so git-cliff can't resolve
+            # it as a revspec. Diff the commits since the latest existing tag up to
+            # HEAD instead, and label that section with the version being published.
+            git-cliff --unreleased --tag "$VERSION" --strip header -o changelog-section.md
           fi
           echo "--- generated changelog section ---"
           cat changelog-section.md
