@@ -100,11 +100,32 @@ func reloadSSHD() error {
 // reload are parameterized (rather than hardcoded) so the
 // Check/Apply/Revert logic is unit-testable against a temp file with a
 // no-op reload.
+//
+// Check/Apply only ever look at (and edit) the top-level/global scope of
+// the config — see directive.go's Match-block handling — so a
+// Match-scoped override of key is never misreported as "satisfied" nor
+// silently rewritten. Warn additionally surfaces when such an override
+// exists, so an operator relying on it is told a fix touching the same
+// directive's global default is about to run, mirroring the fail2ban
+// fix's Warn for "can't fully reason about this on its own" situations.
 func sshDisableDirectiveFixAt(testID, description, path string, reload func() error, key string) Fix {
 	const value = "no"
 	return Fix{
 		TestID:      testID,
 		Description: description,
+		Warn: func() (string, bool, error) {
+			content, _, err := ReadFileOrEmpty(path)
+			if err != nil {
+				return "", false, err
+			}
+			if !directiveInMatchBlock(string(content), key) {
+				return "", false, nil
+			}
+			return fmt.Sprintf(
+				"%s is also set inside a Match block in %s — themis only manages the global default and will not touch the Match-scoped override, but review it before proceeding to confirm it's still what you intend",
+				key, path,
+			), true, nil
+		},
 		Check: func() (bool, error) {
 			content, _, err := ReadFileOrEmpty(path)
 			if err != nil {

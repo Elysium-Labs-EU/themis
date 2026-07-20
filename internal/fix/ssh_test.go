@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +46,122 @@ func TestSSHDisableDirectiveFixAtLifecycle(t *testing.T) {
 	}
 	if satisfied {
 		t.Fatal("expected Check to report unsatisfied after Revert restored original")
+	}
+}
+
+// TestSSHDisableDirectiveFixAtIgnoresNarrowerMatchException reproduces
+// issue #15 scenario A: a genuinely wide-open global PermitRootLogin yes
+// with a Match block that only tightens it for one subnet. Check must
+// report unsatisfied (not mask the global exposure), and Apply must fix
+// the global line while leaving the Match block's already-correct line
+// alone.
+func TestSSHDisableDirectiveFixAtIgnoresNarrowerMatchException(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	content := "PasswordAuthentication no\nPermitRootLogin yes\nMatch Address 10.0.0.0/8\n    PermitRootLogin no\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if satisfied {
+		t.Fatal("expected Check to report unsatisfied — the global default is still wide open")
+	}
+
+	if _, applyErr := f.Apply(); applyErr != nil {
+		t.Fatalf("Apply: %v", applyErr)
+	}
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading updated config: %v", err)
+	}
+	if !strings.Contains(string(updated), "Match Address 10.0.0.0/8\n    PermitRootLogin no") {
+		t.Fatalf("expected Match block to survive untouched, got:\n%s", updated)
+	}
+	satisfied, err = f.Check()
+	if err != nil {
+		t.Fatalf("Check after Apply: %v", err)
+	}
+	if !satisfied {
+		t.Fatal("expected Check to report satisfied after Apply fixed the global default")
+	}
+}
+
+// TestSSHDisableDirectiveFixAtDoesNotDestroyMatchException reproduces
+// issue #15 scenario B: global already hardened, with a deliberate
+// Match-scoped break-glass exception. Check must report satisfied (no
+// false-positive "needs fixing"), so Apply is never invoked and the
+// operator's override is never at risk of being silently commented out.
+func TestSSHDisableDirectiveFixAtDoesNotDestroyMatchException(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	content := "PasswordAuthentication no\nPermitRootLogin no\nMatch User admin\n    PermitRootLogin yes\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !satisfied {
+		t.Fatal("expected Check to report satisfied — the global default is already hardened")
+	}
+
+	// Belt-and-suspenders: even if Apply were invoked, it must not touch
+	// the admin override.
+	if _, applyErr := f.Apply(); applyErr != nil {
+		t.Fatalf("Apply: %v", applyErr)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	if !strings.Contains(string(updated), "Match User admin\n    PermitRootLogin yes") {
+		t.Fatalf("expected admin's Match-scoped override to survive, got:\n%s", updated)
+	}
+}
+
+func TestSSHDisableDirectiveFixAtWarnsWhenMatchBlockRedefinesKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	content := "PermitRootLogin yes\nMatch Address 10.0.0.0/8\n    PermitRootLogin no\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	if f.Warn == nil {
+		t.Fatal("expected Warn to be set")
+	}
+	msg, detected, err := f.Warn()
+	if err != nil {
+		t.Fatalf("Warn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected Warn to detect the Match-scoped redefinition")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
+func TestSSHDisableDirectiveFixAtNoWarnWithoutMatchBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("PermitRootLogin yes\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	_, detected, err := f.Warn()
+	if err != nil {
+		t.Fatalf("Warn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected Warn not to fire when there is no Match block")
 	}
 }
 
