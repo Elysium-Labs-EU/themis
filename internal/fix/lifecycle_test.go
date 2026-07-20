@@ -1,6 +1,7 @@
 package fix
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -165,22 +166,31 @@ func TestAutoUpdatesRevertRestoresExistingConfig(t *testing.T) {
 }
 
 func TestFirewallFixLifecycle(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config") // absent → defaults to port 22
 	active := false
 	installed := false
+	sshAllowed := false
 	run := func(name string, args ...string) error {
 		joined := name + " " + strings.Join(args, " ")
-		if strings.Contains(joined, "--force enable") {
+		switch {
+		case strings.Contains(joined, "--force enable"):
 			active = true
+		case strings.Contains(joined, "allow 22/tcp"):
+			sshAllowed = true
 		}
 		return nil
 	}
 	outRun := func(name string, args ...string) (string, error) {
-		if active {
-			return "Status: active\nDefault: deny (incoming), allow (outgoing)\n", nil
+		if !active {
+			return "", errors.New("ufw not running")
 		}
-		return "", errors.New("ufw not running")
+		out := "Status: active\nDefault: deny (incoming), allow (outgoing)\n"
+		if sshAllowed {
+			out += "22/tcp                     ALLOW IN    Anywhere\n"
+		}
+		return out, nil
 	}
-	f := firewallDefaultDenyFixWith(run, outRun, func(string) bool { return installed })
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return installed })
 
 	if ok, err := f.Check(); err != nil || ok {
 		t.Fatalf("pre-apply Check = %v, %v; want false, nil", ok, err)
@@ -189,6 +199,9 @@ func TestFirewallFixLifecycle(t *testing.T) {
 	data, err := f.Apply()
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
+	}
+	if !sshAllowed {
+		t.Fatal("expected Apply to allow port 22/tcp before enabling ufw")
 	}
 
 	if ok, err := f.Check(); err != nil || !ok {
@@ -201,7 +214,73 @@ func TestFirewallFixLifecycle(t *testing.T) {
 	}
 }
 
+func TestFirewallApplyAllowsConfiguredSSHDPort(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(sshdPath, []byte("Port 2222\n"), 0o644); err != nil {
+		t.Fatalf("seed sshd_config: %v", err)
+	}
+	var allowed []string
+	run := func(name string, args ...string) error {
+		joined := name + " " + strings.Join(args, " ")
+		if strings.HasPrefix(joined, "ufw allow ") {
+			allowed = append(allowed, joined)
+		}
+		return nil
+	}
+	outRun := func(string, ...string) (string, error) { return "", errors.New("ufw not running") }
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(allowed) != 1 || allowed[0] != "ufw allow 2222/tcp" {
+		t.Fatalf("expected exactly one 'ufw allow 2222/tcp', got %v", allowed)
+	}
+
+	var state firewallState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("unmarshal revert state: %v", err)
+	}
+	if len(state.AllowedPorts) != 1 || state.AllowedPorts[0] != "2222" {
+		t.Fatalf("expected AllowedPorts = [2222], got %v", state.AllowedPorts)
+	}
+}
+
+func TestFirewallApplySkipsPortsAlreadyAllowed(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config")
+	var allowCalls []string
+	run := func(name string, args ...string) error {
+		joined := name + " " + strings.Join(args, " ")
+		if strings.HasPrefix(joined, "ufw allow ") {
+			allowCalls = append(allowCalls, joined)
+		}
+		return nil
+	}
+	// Prior state already has an OpenSSH allow rule.
+	outRun := func(string, ...string) (string, error) {
+		return "Status: inactive\nOpenSSH                    ALLOW IN    Anywhere\n", nil
+	}
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(allowCalls) != 0 {
+		t.Fatalf("expected no new allow rule when OpenSSH already allowed, got %v", allowCalls)
+	}
+	var state firewallState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("unmarshal revert state: %v", err)
+	}
+	if len(state.AllowedPorts) != 0 {
+		t.Fatalf("expected no AllowedPorts recorded, got %v", state.AllowedPorts)
+	}
+}
+
 func TestFirewallApplyInstallFailure(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config")
 	run := func(name string, args ...string) error {
 		if strings.Contains(name+" "+strings.Join(args, " "), "apt-get install") {
 			return errors.New("install failed")
@@ -209,26 +288,33 @@ func TestFirewallApplyInstallFailure(t *testing.T) {
 		return nil
 	}
 	outRun := func(string, ...string) (string, error) { return "", nil }
-	f := firewallDefaultDenyFixWith(run, outRun, func(string) bool { return false })
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return false })
 	if _, err := f.Apply(); err == nil {
 		t.Fatal("expected Apply to fail when install fails")
 	}
 }
 
 func TestFirewallRevertRestoresPriorPolicy(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config")
 	var restored string
+	var deleted []string
 	run := func(name string, args ...string) error {
 		joined := name + " " + strings.Join(args, " ")
-		if strings.HasPrefix(joined, "ufw default ") {
+		switch {
+		case strings.HasPrefix(joined, "ufw default "):
 			restored = joined
+		case strings.HasPrefix(joined, "ufw delete allow "):
+			deleted = append(deleted, joined)
 		}
 		return nil
 	}
-	// Was installed and active, prior policy allow → revert restores it, keeps active.
+	// Was installed and active, prior policy allow, no existing SSH rule →
+	// Apply adds one, revert restores prior policy, keeps active, and
+	// removes exactly the rule Apply added.
 	outRun := func(string, ...string) (string, error) {
 		return "Status: active\nDefault: allow (incoming), allow (outgoing)\n", nil
 	}
-	f := firewallDefaultDenyFixWith(run, outRun, func(string) bool { return true })
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return true })
 	data, err := f.Apply()
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -238,5 +324,8 @@ func TestFirewallRevertRestoresPriorPolicy(t *testing.T) {
 	}
 	if !strings.Contains(restored, "allow incoming") {
 		t.Fatalf("expected prior allow policy restored, got %q", restored)
+	}
+	if len(deleted) != 1 || deleted[0] != "ufw delete allow 22/tcp" {
+		t.Fatalf("expected revert to delete exactly the SSH rule Apply added, got %v", deleted)
 	}
 }
