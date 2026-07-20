@@ -45,6 +45,20 @@ func runApply(cmd *cobra.Command, statePath string) error {
 		}
 		revertData, err := f.Apply()
 		if err != nil {
+			// Some Fix implementations write their target file and then
+			// fail at a later step (e.g. a service reload). That write is
+			// real and already on disk, so a Fix.Apply() that knows this
+			// may return non-nil revertData alongside the error. Record
+			// it exactly like a successful entry so state.json — and a
+			// later rollback — knows about the partial mutation instead
+			// of losing all trace of it.
+			if revertData != nil {
+				snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
+				if saveErr := state.Save(statePath, snap); saveErr != nil {
+					return fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", p.TestID, err, saveErr)
+				}
+				return fmt.Errorf("applying %s: %w (partial mutation recorded and revertible; rollback state saved to %s)", p.TestID, err, statePath)
+			}
 			// Whatever already succeeded was saved to statePath as soon
 			// as it happened, so it's already revertible.
 			if len(snap.Entries) > 0 {
