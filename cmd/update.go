@@ -137,8 +137,8 @@ func fetchLatestRelease(ctx context.Context, includePre bool) (Release, error) {
 // .github/workflows/release.yml to sign at release time — it is never
 // checked into this repo.
 const releaseSigningPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY8W5BambZpRnZnMuWfe2rMixtfcf
-ou2o+sJ4y3wy7AW1QrCOXQUVxaSiwWqzznFsYlFSOvQc6TFA4lYPsm13xQ==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZo6eWxjF1xhHMI/MyUNptSdkxuHM
+qAeiDXd1PrPNR3I1N1radAb1df3CPt0WjZQmuTesJLQiDL91WwVt7fraSA==
 -----END PUBLIC KEY-----
 `
 
