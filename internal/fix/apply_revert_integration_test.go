@@ -201,9 +201,21 @@ func TestFirewallDefaultDenyApplyRevertIntegration(t *testing.T) {
 	prevActive := strings.Contains(prevStatus, "Status: active")
 	prevDefault := parseDefaultIncoming(prevStatus)
 
+	// Determine which port(s) this box's sshd is actually configured to
+	// listen on, the same way firewallApply does, so the assertion below
+	// checks the port that matters on this host rather than assuming 22.
+	sshdConfig, _, err := ReadFileOrEmpty(sshdConfigPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", sshdConfigPath, err)
+	}
+	wantPorts := sshAllowPorts(string(sshdConfig))
+
 	revert := applyWithGuaranteedRevert(t, firewallDefaultDenyFix())
 
-	// Independent verification: ufw active with default-deny incoming.
+	// Independent verification: ufw active with default-deny incoming AND
+	// an allow rule for sshd's configured port(s) — issue #18 was that
+	// FIRE-4590 enabled default-deny-incoming with zero SSH allow rule,
+	// severing remote access to the box being hardened.
 	status := mustRun(t, "ufw", "status", "verbose")
 	if !strings.Contains(status, "Status: active") {
 		t.Errorf("ufw not active after apply:\n%s", status)
@@ -211,8 +223,26 @@ func TestFirewallDefaultDenyApplyRevertIntegration(t *testing.T) {
 	if got := parseDefaultIncoming(status); got != "deny" {
 		t.Errorf("default incoming = %q after apply, want deny:\n%s", got, status)
 	}
+	for _, port := range wantPorts {
+		if !ufwAllowsPort(status, port) {
+			t.Errorf("no ufw ALLOW rule for SSH port %s after apply — this would lock out a remote admin:\n%s", port, status)
+		}
+	}
 
 	revert()
+
+	// Verify the SSH allow rule this fix added is gone after revert too —
+	// not just the default policy — so revert doesn't leave stale rules
+	// behind (only checked when ufw was already installed; otherwise the
+	// package removal below already wipes every rule).
+	if prevInstalled {
+		afterRevertStatus := mustRun(t, "ufw", "status", "verbose")
+		for _, port := range wantPorts {
+			if ufwAllowsPort(afterRevertStatus, port) && !ufwAllowsPort(prevStatus, port) {
+				t.Errorf("ufw ALLOW rule for port %s added by apply still present after revert:\n%s", port, afterRevertStatus)
+			}
+		}
+	}
 
 	// Verify prior state restored.
 	if !prevInstalled {
