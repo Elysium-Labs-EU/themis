@@ -102,6 +102,199 @@ func TestFetchLatestReleaseIncludePre(t *testing.T) {
 	}
 }
 
+// TestFetchLatestReleaseIncludePreOutOfOrder guards against the bug in
+// argus#74 / themis#27: GitHub's release list is ordered by creation time,
+// not version, and has been observed live to return a release out of
+// order. --pre must pick the highest stable tag by semver, not releases[0].
+func TestFetchLatestReleaseIncludePreOutOfOrder(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v1.0.0", "prerelease": false, "assets": []},
+			{"tag_name": "v1.2.0", "prerelease": false, "assets": []},
+			{"tag_name": "v1.1.0", "prerelease": false, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.2.0" {
+		t.Errorf("TagName = %q, want the highest semver tag %q regardless of list order", rel.TagName, "v1.2.0")
+	}
+}
+
+// TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease confirms
+// --pre still prefers a stable release over a semver-newer prerelease, per
+// the fix direction in themis#27: only fall back to the highest prerelease
+// tag when no stable release exists.
+func TestFetchLatestReleaseIncludePrePrefersStableOverNewerPrerelease(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v1.1.0-rc.1", "prerelease": true, "assets": []},
+			{"tag_name": "v1.0.0", "prerelease": false, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.0.0" {
+		t.Errorf("TagName = %q, want the stable release %q over the newer prerelease", rel.TagName, "v1.0.0")
+	}
+}
+
+// TestFetchLatestReleaseIncludePreAllPrerelease confirms --pre falls back to
+// the highest prerelease tag when no release in the list is stable.
+func TestFetchLatestReleaseIncludePreAllPrerelease(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name": "v1.0.0-rc.1", "prerelease": true, "assets": []},
+			{"tag_name": "v1.0.0-rc.2", "prerelease": true, "assets": []}
+		]`))
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), true)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.0.0-rc.2" {
+		t.Errorf("TagName = %q, want the highest prerelease tag %q", rel.TagName, "v1.0.0-rc.2")
+	}
+}
+
+// TestFetchLatestReleaseFallsBackTo404 confirms the plain (non-pre) path
+// falls back to the full releases list when /releases/latest 404s — which
+// GitHub does whenever every published release is a prerelease — and picks
+// the highest stable tag from that list, ignoring list order.
+func TestFetchLatestReleaseFallsBackOn404(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{"tag_name": "v1.1.0-rc.1", "prerelease": true, "assets": []},
+				{"tag_name": "v1.0.0", "prerelease": false, "assets": []},
+				{"tag_name": "v0.9.0", "prerelease": false, "assets": []}
+			]`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), false)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.0.0" {
+		t.Errorf("TagName = %q, want the highest stable tag %q", rel.TagName, "v1.0.0")
+	}
+}
+
+// TestFetchLatestReleaseFallsBackOn404AllPrerelease confirms the plain
+// (non-pre) path no longer hard-errors when every published release is a
+// prerelease — it offers the highest prerelease tag instead.
+func TestFetchLatestReleaseFallsBackOn404AllPrerelease(t *testing.T) {
+	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"tag_name": "v1.0.0-rc.1", "prerelease": true, "assets": []}]`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+
+	rel, err := fetchLatestRelease(context.Background(), false)
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.0.0-rc.1" {
+		t.Errorf("TagName = %q, want the prerelease tag %q instead of an error", rel.TagName, "v1.0.0-rc.1")
+	}
+}
+
+func TestPickLatestRelease(t *testing.T) {
+	cases := []struct {
+		name     string
+		want     string
+		releases []Release
+		wantErr  bool
+	}{
+		{
+			name: "out of order stable releases",
+			releases: []Release{
+				{TagName: "v1.0.0"},
+				{TagName: "v1.2.0"},
+				{TagName: "v1.1.0"},
+			},
+			want: "v1.2.0",
+		},
+		{
+			name: "stable preferred over newer prerelease",
+			releases: []Release{
+				{TagName: "v1.1.0-rc.1", Prerelease: true},
+				{TagName: "v1.0.0"},
+			},
+			want: "v1.0.0",
+		},
+		{
+			name: "falls back to highest prerelease when no stable exists",
+			releases: []Release{
+				{TagName: "v1.0.0-rc.1", Prerelease: true},
+				{TagName: "v1.0.0-rc.2", Prerelease: true},
+			},
+			want: "v1.0.0-rc.2",
+		},
+		{
+			name:     "empty list errors",
+			releases: nil,
+			wantErr:  true,
+		},
+		{
+			name: "invalid semver tags are ignored",
+			releases: []Release{
+				{TagName: "not-semver"},
+				{TagName: "v1.0.0"},
+			},
+			want: "v1.0.0",
+		},
+		{
+			name: "all invalid semver tags errors",
+			releases: []Release{
+				{TagName: "not-semver"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rel, err := pickLatestRelease(tc.releases)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("pickLatestRelease: %v", err)
+			}
+			if rel.TagName != tc.want {
+				t.Errorf("TagName = %q, want %q", rel.TagName, tc.want)
+			}
+		})
+	}
+}
+
 func TestFetchLatestReleaseIncludePreEmptyList(t *testing.T) {
 	useHTTPTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
