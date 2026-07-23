@@ -106,6 +106,63 @@ func TestFail2banRevertRestoresExistingConfig(t *testing.T) {
 	}
 }
 
+// TestFail2banFixRevertWarnDetectsPostApplyDrift covers issue #16: an
+// operator hand-edits jail.local after Apply ran (e.g. adding another jail
+// section). RevertWarn must flag the drift so Revert doesn't silently
+// discard it.
+func TestFail2banFixRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{installed: true}
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	extra := "\n[nginx-http-auth]\nenabled = true\n"
+	if writeErr := os.WriteFile(path, append(current, []byte(extra)...), 0o644); writeErr != nil {
+		t.Fatalf("simulating admin edit: %v", writeErr)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	msg, detected, err := f.RevertWarn(data)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect the post-apply edit")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
+func TestFail2banFixRevertWarnNoDriftWhenUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{installed: true}
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	_, detected, err := f.RevertWarn(data)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file is untouched since Apply")
+	}
+}
+
 func TestAutoUpdatesFixLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "20auto-upgrades")
 	r := &fakeRunner{}
@@ -139,6 +196,60 @@ func TestAutoUpdatesCheckNotInstalled(t *testing.T) {
 	f := autoUpdatesFixWith(path, (&fakeRunner{}).run, func(string) bool { return false })
 	if ok, err := f.Check(); err != nil || ok {
 		t.Fatalf("Check with package absent = %v, %v; want false, nil", ok, err)
+	}
+}
+
+// TestAutoUpdatesFixRevertWarnDetectsPostApplyDrift covers issue #16: an
+// operator hand-edits the 20auto-upgrades config after Apply ran.
+// RevertWarn must flag the drift so Revert doesn't silently discard it.
+func TestAutoUpdatesFixRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "20auto-upgrades")
+	f := autoUpdatesFixWith(path, (&fakeRunner{}).run, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	extra := `APT::Periodic::AutocleanInterval "7";` + "\n"
+	if writeErr := os.WriteFile(path, append(current, []byte(extra)...), 0o644); writeErr != nil {
+		t.Fatalf("simulating admin edit: %v", writeErr)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	msg, detected, err := f.RevertWarn(data)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect the post-apply edit")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
+func TestAutoUpdatesFixRevertWarnNoDriftWhenUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "20auto-upgrades")
+	f := autoUpdatesFixWith(path, (&fakeRunner{}).run, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	_, detected, err := f.RevertWarn(data)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file is untouched since Apply")
 	}
 }
 

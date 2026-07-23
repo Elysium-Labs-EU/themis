@@ -1,9 +1,53 @@
 package fix
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRevertDriftedNoDriftWhenContentMatches(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, []byte("applied content\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	msg, detected, err := revertDrifted(path, "applied content\n")
+	if err != nil {
+		t.Fatalf("revertDrifted: %v", err)
+	}
+	if detected || msg != "" {
+		t.Fatalf("revertDrifted = (%q, %v), want (\"\", false)", msg, detected)
+	}
+}
+
+func TestRevertDriftedDetectsMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, []byte("applied content\nplus an admin edit\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	msg, detected, err := revertDrifted(path, "applied content\n")
+	if err != nil {
+		t.Fatalf("revertDrifted: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected drift to be detected")
+	}
+	if !strings.Contains(msg, path) {
+		t.Fatalf("expected message to reference %q, got %q", path, msg)
+	}
+}
+
+func TestRevertDriftedNoDriftWhenFileMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist")
+	_, detected, err := revertDrifted(path, "applied content\n")
+	if err != nil {
+		t.Fatalf("revertDrifted: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file doesn't exist — nothing left to discard")
+	}
+}
 
 func TestRunCmdSuccess(t *testing.T) {
 	if err := runCmd("true"); err != nil {

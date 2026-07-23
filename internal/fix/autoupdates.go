@@ -27,7 +27,16 @@ func autoUpdatesFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix
 		Check:       func() (bool, error) { return autoUpdatesCheck(path, pkgInstalled) },
 		Apply:       func() ([]byte, error) { return autoUpdatesApply(path, run, pkgInstalled) },
 		Revert:      func(data []byte) error { return autoUpdatesRevert(data, path, run) },
+		RevertWarn:  func(data []byte) (string, bool, error) { return autoUpdatesRevertWarn(data, path) },
 	}
+}
+
+// autoUpdatesApplied renders the config content Apply writes given
+// prevConfig, the pre-apply content. Pure — no I/O — shared by Apply and
+// RevertWarn so drift detection compares against exactly what Apply wrote.
+func autoUpdatesApplied(prevConfig []byte) string {
+	updated := setDirective(string(prevConfig), "APT::Periodic::Unattended-Upgrade", `"1";`)
+	return setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
 }
 
 // autoUpdatesCheck reports whether unattended-upgrades is installed and the
@@ -59,8 +68,7 @@ func autoUpdatesApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]by
 	if err != nil {
 		return nil, err
 	}
-	updated := setDirective(string(original), "APT::Periodic::Unattended-Upgrade", `"1";`)
-	updated = setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
+	updated := autoUpdatesApplied(original)
 	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
 		return nil, writeErr
 	}
@@ -90,4 +98,15 @@ func autoUpdatesRevert(data []byte, path string, run cmdRunner) error {
 		return run("apt-get", "remove", "-y", "unattended-upgrades")
 	}
 	return nil
+}
+
+// autoUpdatesRevertWarn reports whether path currently differs from the
+// content Apply wrote, i.e. it was hand-edited since apply and Revert
+// would discard that edit unless warned first.
+func autoUpdatesRevertWarn(data []byte, path string) (string, bool, error) {
+	var state autoUpdatesState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", false, fmt.Errorf("unmarshaling auto-updates revert state: %w", err)
+	}
+	return revertDrifted(path, autoUpdatesApplied(state.PrevConfig))
 }

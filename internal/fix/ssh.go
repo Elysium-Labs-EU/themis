@@ -110,6 +110,12 @@ func reloadSSHD() error {
 // fix's Warn for "can't fully reason about this on its own" situations.
 func sshDisableDirectiveFixAt(testID, description, path string, reload func() error, key string) Fix {
 	const value = "no"
+	// applied renders the content Apply writes given original, the
+	// pre-apply content — shared by Apply and RevertWarn so drift detection
+	// compares against exactly what Apply produced.
+	applied := func(original []byte) string {
+		return setDirective(string(original), key, value)
+	}
 	return Fix{
 		TestID:      testID,
 		Description: description,
@@ -138,8 +144,7 @@ func sshDisableDirectiveFixAt(testID, description, path string, reload func() er
 			if err != nil {
 				return nil, err
 			}
-			updated := setDirective(string(original), key, value)
-			if err := writeFile(path, []byte(updated), 0o600); err != nil {
+			if err := writeFile(path, []byte(applied(original)), 0o600); err != nil {
 				return nil, err
 			}
 			if err := reload(); err != nil {
@@ -152,6 +157,9 @@ func sshDisableDirectiveFixAt(testID, description, path string, reload func() er
 				return err
 			}
 			return reload()
+		},
+		RevertWarn: func(original []byte) (string, bool, error) {
+			return revertDrifted(path, applied(original))
 		},
 	}
 }

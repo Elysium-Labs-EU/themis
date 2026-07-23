@@ -62,6 +62,9 @@ func sysctlFixAt(path string, reload func() error) Fix {
 			}
 			return reload()
 		},
+		RevertWarn: func([]byte) (string, bool, error) {
+			return revertDrifted(path, desired)
+		},
 	}
 }
 

@@ -43,6 +43,82 @@ func TestSysctlFixAtLifecycleWhenFileMissing(t *testing.T) {
 	}
 }
 
+// TestSysctlFixAtRevertWarnDetectsPostApplyDrift reproduces issue #16's
+// KRNL-6000 repro: an admin appends a legitimate line to the themis-managed
+// drop-in after Apply ran. RevertWarn must flag the drift so Revert doesn't
+// silently discard it.
+func TestSysctlFixAtRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	f := sysctlFixAt(path, func() error { return nil })
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	drifted := "net.ipv4.conf.all.log_martians = 1\n"
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	if writeErr := os.WriteFile(path, append(current, []byte(drifted)...), 0o644); writeErr != nil {
+		t.Fatalf("simulating admin edit: %v", writeErr)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	msg, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect the post-apply edit")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
+func TestSysctlFixAtRevertWarnNoDriftWhenUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	f := sysctlFixAt(path, func() error { return nil })
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	_, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file is untouched since Apply")
+	}
+}
+
+func TestSysctlFixAtRevertWarnNoDriftWhenFileRemoved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	f := sysctlFixAt(path, func() error { return nil })
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if removeErr := os.Remove(path); removeErr != nil {
+		t.Fatalf("removing file: %v", removeErr)
+	}
+
+	_, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file is simply gone — nothing left to discard")
+	}
+}
+
 func TestSysctlFixAtLifecycleWhenFilePreexisted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
 	original := "# custom pre-existing content\n"

@@ -92,3 +92,23 @@ func runCmdOutput(name string, args ...string) (string, error) {
 func packageInstalled(name string) bool {
 	return runCmd("dpkg", "-s", name) == nil
 }
+
+// revertDrifted reports whether the file at path currently differs from
+// applied — the content a Fix's Apply is expected to have written — and if
+// so returns the standard "changed since apply" advisory for a Fix's
+// RevertWarn. A missing file has nothing left to discard, so that case
+// reports no drift; Revert already knows how to handle a missing file on
+// its own.
+func revertDrifted(path, applied string) (message string, detected bool, err error) {
+	current, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return "", false, err
+	}
+	if !existed || string(current) == applied {
+		return "", false, nil
+	}
+	return fmt.Sprintf(
+		"%s has changed since apply — reverting now would discard those changes; review the file, then rerun rollback with --force to revert anyway",
+		path,
+	), true, nil
+}

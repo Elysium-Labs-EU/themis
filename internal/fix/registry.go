@@ -14,8 +14,14 @@ type Fix struct {
 	// tool already managing the same surface) so the fix is skipped and the
 	// message shown instead of applied outright. A caller can still force
 	// the apply through once they've reviewed it.
-	Warn   func() (message string, detected bool, err error)
-	TestID string
+	Warn func() (message string, detected bool, err error)
+	// RevertWarn, if set, is checked by `rollback` before Revert runs. It
+	// reports that the target has drifted from what Apply wrote — e.g. an
+	// operator hand-edited the file afterward — so calling Revert now would
+	// silently discard that edit. A caller can still force the revert
+	// through once they've reviewed it.
+	RevertWarn func(revertData []byte) (message string, detected bool, err error)
+	TestID     string
 	// LynisID is the raw Lynis test ID this fix addresses, when it
 	// differs from TestID (e.g. one Lynis finding split across several
 	// fixes). Empty means LynisID == TestID.

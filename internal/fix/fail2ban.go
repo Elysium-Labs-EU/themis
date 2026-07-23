@@ -40,6 +40,7 @@ func fail2banFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
 		Check:       func() (bool, error) { return fail2banCheck(path, run) },
 		Apply:       func() ([]byte, error) { return fail2banApply(path, run, pkgInstalled) },
 		Revert:      func(data []byte) error { return fail2banRevert(data, path, run) },
+		RevertWarn:  func(data []byte) (string, bool, error) { return fail2banRevertWarn(data, path) },
 	}
 }
 
@@ -104,6 +105,17 @@ func fail2banRevert(data []byte, path string, run cmdRunner) error {
 		return run("apt-get", "remove", "-y", "fail2ban")
 	}
 	return run("systemctl", "restart", "fail2ban")
+}
+
+// fail2banRevertWarn reports whether path currently differs from the
+// [sshd] jail content Apply wrote, i.e. it was hand-edited since apply and
+// Revert would discard that edit unless warned first.
+func fail2banRevertWarn(data []byte, path string) (string, bool, error) {
+	var state fail2banState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", false, fmt.Errorf("unmarshaling fail2ban revert state: %w", err)
+	}
+	return revertDrifted(path, ensureSSHDJail(string(state.PrevConfig)))
 }
 
 // fail2banWarn flags hosts where pinning banaction ourselves may not be the

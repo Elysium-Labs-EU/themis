@@ -126,6 +126,67 @@ func TestSSHDisableDirectiveFixAtDoesNotDestroyMatchException(t *testing.T) {
 	}
 }
 
+// TestSSHDisableDirectiveFixAtRevertWarnDetectsPostApplyDrift reproduces
+// issue #16's SSH-7408-ROOTLOGIN repro: an admin appends a legitimate Match
+// block after Apply ran. RevertWarn must flag the drift so Revert doesn't
+// silently discard it.
+func TestSSHDisableDirectiveFixAtRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("PermitRootLogin yes\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	matchBlock := "\nMatch User deploy\n    PermitRootLogin yes\n"
+	if writeErr := os.WriteFile(path, append(current, []byte(matchBlock)...), 0o600); writeErr != nil {
+		t.Fatalf("simulating admin edit: %v", writeErr)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	msg, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect the post-apply Match block")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
+func TestSSHDisableDirectiveFixAtRevertWarnNoDriftWhenUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("PermitRootLogin yes\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	_, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if detected {
+		t.Fatal("expected no drift when the file is untouched since Apply")
+	}
+}
+
 func TestSSHDisableDirectiveFixAtWarnsWhenMatchBlockRedefinesKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sshd_config")
 	content := "PermitRootLogin yes\nMatch Address 10.0.0.0/8\n    PermitRootLogin no\n"
