@@ -14,15 +14,15 @@ import (
 )
 
 // sources lists every audit source themis runs when auditing the system
-// (themis check, themis api check). quick, when true, runs lynis with its
-// lighter --quick profile instead of a full audit.
-func sources(quick bool) []audit.Source {
-	return []audit.Source{lynis.NewSource(lynis.Options{Quick: quick}), native.NewSource()}
+// (themis check, themis api check).
+func sources(lynisOpts lynis.Options) []audit.Source {
+	return []audit.Source{lynis.NewSource(lynisOpts), native.NewSource()}
 }
 
 func newCheckCmd() *cobra.Command {
 	var showAll bool
 	var quick bool
+	var skipUnchanged bool
 
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -31,7 +31,8 @@ func newCheckCmd() *cobra.Command {
 			var findings []audit.Finding
 			err := ui.WithSpinner("Running audit...", func() error {
 				var err error
-				findings, err = audit.Run(cmd.Context(), sources(quick))
+				lynisOpts := lynis.Options{Quick: quick, SkipIfUnchanged: skipUnchanged}
+				findings, err = audit.Run(cmd.Context(), sources(lynisOpts))
 				return err
 			})
 			if err != nil {
@@ -49,6 +50,7 @@ func newCheckCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no source solution hint")
 	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
+	cmd.Flags().BoolVar(&skipUnchanged, "skip-unchanged", false, "skip the lynis scan and reuse the last report if nothing lynis cares about (config files, package list) has changed since")
 	return cmd
 }
 

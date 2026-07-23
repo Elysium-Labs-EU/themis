@@ -37,5 +37,6 @@ var apiCmd = &cobra.Command{
 
 func init() {
 	apiCheckCmd.Flags().Bool("quick", false, "run lynis's lighter --quick profile instead of a full audit")
+	apiCheckCmd.Flags().Bool("skip-unchanged", false, "skip the lynis scan and reuse the last report if nothing lynis cares about (config files, package list) has changed since")
 	apiCmd.AddCommand(apiCheckCmd)
 }

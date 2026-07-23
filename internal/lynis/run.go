@@ -21,6 +21,13 @@ type Options struct {
 	// exchange for a faster, lighter scan. Default (false) is a full
 	// audit.
 	Quick bool
+	// SkipIfUnchanged skips re-running lynis and reuses the last report's
+	// findings when none of the config files or the package list lynis
+	// cares about have changed since the last full scan. Default (false)
+	// always runs a full scan — this is an opt-in for resource-
+	// constrained or stateful hosts that don't want to pay for a lynis
+	// run when nothing changed.
+	SkipIfUnchanged bool
 }
 
 // lynisArgs builds the `lynis audit system` argument list for the given
@@ -77,8 +84,26 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 		}
 	}
 
+	if opts.SkipIfUnchanged {
+		// A fingerprinting error (e.g. a permission problem reading one
+		// of the config paths) isn't fatal — it just means we can't
+		// prove nothing changed, so fall through to a full scan.
+		profile := scanProfile(opts.Quick)
+		if skip, skipErr := shouldSkip(fingerprintPaths, dpkgStatusPath, FingerprintPath, ReportPath, profile); skipErr == nil && skip {
+			return readReport(ReportPath)
+		}
+	}
+
 	if runErr := runLynisAudit(ctx, lynisBin, opts); runErr != nil {
 		return nil, runErr
+	}
+
+	if opts.SkipIfUnchanged {
+		// Best-effort: if this fails to save, the next run just won't
+		// skip and will pay for another full scan instead.
+		if fp, fpErr := readFingerprint(fingerprintPaths, dpkgStatusPath, scanProfile(opts.Quick)); fpErr == nil {
+			_ = saveFingerprint(FingerprintPath, fp)
+		}
 	}
 
 	return readReport(ReportPath)

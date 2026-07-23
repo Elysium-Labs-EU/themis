@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/lynis"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,9 @@ Exit codes:
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		quick, _ := cmd.Flags().GetBool("quick")
-		findings, err := audit.Run(cmd.Context(), sources(quick))
+		skipUnchanged, _ := cmd.Flags().GetBool("skip-unchanged")
+		lynisOpts := lynis.Options{Quick: quick, SkipIfUnchanged: skipUnchanged}
+		findings, err := audit.Run(cmd.Context(), sources(lynisOpts))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}
