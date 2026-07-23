@@ -13,8 +13,9 @@ themis merges findings from pluggable audit sources ([Lynis](https://cisofy.com/
 * **Actionable findings only** by default, findings with no themis fix and no solution hint print de-emphasized instead of a full table row; `--all` promotes them back.
 * **Idempotent fixes**, each registered fix knows how to detect its own satisfied state before applying anything.
 * **Rollback metadata** saved automatically on every `apply`, so a bad hardening run can be undone with one command.
+* **Drift detection** via [osquery](https://osquery.io/) (optional), `themis check` flags fixes that were satisfied by a prior `apply` but no longer hold, surfaced separately from fresh findings — see [Drift detection](#drift-detection) below.
 * **Machine-readable output** via `themis api check`, for scripting or CI gates.
-* **Zero runtime dependencies** beyond Lynis itself, single static binary.
+* **Zero required runtime dependencies** beyond Lynis itself, single static binary; osquery is optional and only used for drift detection.
 
 ## Install
 
@@ -37,7 +38,7 @@ cd themis
 go build -o themis
 ```
 
-Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for the audit.
+Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for the audit. [osquery](https://osquery.io/) is optional and only needed for drift detection — see [Drift detection](#drift-detection).
 
 ### Release integrity
 
@@ -58,6 +59,18 @@ sudo themis apply
 # Undo the fixes from the last apply
 sudo themis rollback
 ```
+
+## Drift detection
+
+Between `themis apply` runs, config a fix touched (an sshd directive, a sysctl, a service) can drift back out of compliance — someone edits it back, a package reinstall resets it, a service gets disabled. `themis check` re-verifies every fix a *prior* `apply` confirmed satisfied, independently of the same detection logic `apply` used, via [osquery](https://osquery.io/)'s system tables (`sshd_config`, `system_controls`, `systemd_units`). A fix that no longer holds is reported as **drift**, printed in its own section ahead of the regular findings (and under `"drift"` in `themis api check`'s JSON) rather than mixed in with fresh suggestions — a regression on something already fixed once is a different signal than something never addressed.
+
+**Prerequisites**
+
+* Install `osqueryi` (part of the [osquery](https://osquery.io/downloads/) package) and make sure it resolves from `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`, `/usr/local/sbin`, or `/usr/local/bin` — themis never resolves external commands through `$PATH`.
+* No osquery config file is required; themis invokes `osqueryi --json "<query>"` directly per check, it does not run `osqueryd` or use osquery's config/flag files.
+* Drift detection is entirely optional and self-skipping: with no `osqueryi` binary installed, or no prior `themis apply` state (`/var/lib/themis/state.json`) on the host, `themis check` runs exactly as before with no error and no drift section.
+
+Currently covered: `SSH-7408-ROOTLOGIN`, `SSH-7408-PASSWDAUTH`, `KRNL-6000`, `THEMIS-FAIL2BAN` (see `internal/osquery/checks.go` for the query-to-fix mapping). `FIRE-4590` and `PKGS-7392` aren't covered — see the doc comment on `osquery.Checks` for why.
 
 ## Commands
 

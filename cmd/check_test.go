@@ -82,6 +82,50 @@ func TestPrintCheckReportShowAllHidesNothing(t *testing.T) {
 	}
 }
 
+func TestPrintCheckReportShowsDriftAheadOfFindings(t *testing.T) {
+	report := checkreport.Report{
+		Drift: []checkreport.Finding{
+			{TestID: "THEMIS-FAIL2BAN", Description: "fail2ban stopped running", Details: "applied 2026-01-01T00:00:00Z, no longer satisfied"},
+		},
+		Findings: []checkreport.Finding{
+			{TestID: "MISC-0001", Kind: "suggestion", Description: "minor thing", Actionable: false},
+		},
+	}
+
+	buf := &bytes.Buffer{}
+	printCheckReport(buf, report, false)
+	out := buf.String()
+
+	for _, want := range []string{
+		"drifted since they were last applied",
+		"THEMIS-FAIL2BAN",
+		"fail2ban stopped running",
+		"applied 2026-01-01T00:00:00Z, no longer satisfied",
+		"themis apply",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "THEMIS-FAIL2BAN") > strings.Index(out, "MISC-0001") {
+		t.Error("expected drift to print ahead of the generic finding list")
+	}
+}
+
+func TestPrintCheckReportOmitsDriftSectionWhenEmpty(t *testing.T) {
+	report := checkreport.Report{
+		Findings: []checkreport.Finding{
+			{TestID: "MISC-0001", Kind: "suggestion", Description: "minor thing", Actionable: false},
+		},
+	}
+
+	buf := &bytes.Buffer{}
+	printCheckReport(buf, report, false)
+	if strings.Contains(buf.String(), "drifted") {
+		t.Errorf("expected no drift section when Report.Drift is empty:\n%s", buf.String())
+	}
+}
+
 func TestCheckCmdRunEErrorsWithoutLynisBinary(t *testing.T) {
 	if _, err := exec.LookPath("lynis"); err == nil {
 		t.Skip("lynis is installed on this host; skipping the missing-binary path")

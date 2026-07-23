@@ -22,9 +22,16 @@ type apiFinding struct {
 	Actionable  bool     `json:"actionable"`
 }
 
+type apiDrift struct {
+	TestID      string `json:"test_id"`
+	Description string `json:"description"`
+	Details     string `json:"details"`
+}
+
 type apiCheckResult struct {
 	Findings    []apiFinding `json:"findings"`
 	NativeFixes []apiFix     `json:"native_fixes"`
+	Drift       []apiDrift   `json:"drift"`
 }
 
 var apiCheckCmd = &cobra.Command{
@@ -53,6 +60,12 @@ Output schema (stdout, JSON):
     ],
     "native_fixes": [
       { "test_id": string, "description": string, "satisfied": bool }
+    ],
+    "drift": [
+      { "test_id": string, "description": string, "details": string }
+      -- fixes a prior ` + "`themis apply`" + ` confirmed satisfied that osquery now
+         reports as no longer holding; kept separate from "findings" since
+         it's a regression, not a fresh suggestion
     ]
   }
 
@@ -83,6 +96,7 @@ Exit codes:
 		result := apiCheckResult{
 			Findings:    make([]apiFinding, 0, len(report.Findings)),
 			NativeFixes: make([]apiFix, 0, len(report.Native)),
+			Drift:       make([]apiDrift, 0, len(report.Drift)),
 		}
 		for _, f := range report.Findings {
 			fs := make([]apiFix, 0, len(f.Fixes))
@@ -101,6 +115,9 @@ Exit codes:
 		}
 		for _, f := range report.Native {
 			result.NativeFixes = append(result.NativeFixes, apiFix{TestID: f.TestID, Description: f.Description, Satisfied: f.Satisfied})
+		}
+		for _, d := range report.Drift {
+			result.Drift = append(result.Drift, apiDrift{TestID: d.TestID, Description: d.Description, Details: d.Details})
 		}
 
 		return writeJSON(cmd, result)

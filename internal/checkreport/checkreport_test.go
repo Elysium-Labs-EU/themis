@@ -104,6 +104,31 @@ func TestBuildDedupesFindingsReportedByMultipleSources(t *testing.T) {
 	}
 }
 
+func TestBuildRoutesDriftFindingsSeparatelyFromGenericFindings(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "THEMIS-FAIL2BAN", Kind: "drift", Description: "fail2ban stopped running", Details: "applied 2026-01-01T00:00:00Z, no longer satisfied", Source: "osquery"},
+	}
+
+	report := Build(findings, nil)
+
+	if len(report.Findings) != 0 {
+		t.Fatalf("expected drift finding to be excluded from Findings, got %+v", report.Findings)
+	}
+	if len(report.Native) != 0 {
+		t.Fatalf("expected drift finding to be excluded from Native, got %+v", report.Native)
+	}
+	if len(report.Drift) != 1 {
+		t.Fatalf("expected 1 drift finding, got %+v", report.Drift)
+	}
+	d := report.Drift[0]
+	if d.TestID != "THEMIS-FAIL2BAN" || !d.Actionable || d.Details == "" {
+		t.Errorf("drift finding = %+v, want TestID=THEMIS-FAIL2BAN Actionable=true with Details set", d)
+	}
+	if len(d.Sources) != 1 || d.Sources[0] != "osquery" {
+		t.Errorf("drift finding Sources = %+v, want [osquery]", d.Sources)
+	}
+}
+
 func TestHiddenReturnsEmptyWhenAllActionable(t *testing.T) {
 	report := Report{
 		Findings: []Finding{
