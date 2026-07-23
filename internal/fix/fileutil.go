@@ -89,6 +89,22 @@ func runCmdOutput(name string, args ...string) (string, error) {
 	return string(out), nil
 }
 
+// packageInstalled reports whether name is actually installed — not just
+// known to dpkg. `dpkg -s` (and a plain `dpkg-query -l`) exit 0 even for a
+// package left in the "deinstall ok config-files" state, i.e. removed with
+// `apt-get remove` (not `purge`): the binaries are gone but conffiles
+// survive. Checking dpkg's Status field directly and requiring the
+// "install ok installed" value excludes that half-removed state.
 func packageInstalled(name string) bool {
-	return runCmd("dpkg", "-s", name) == nil
+	out, err := runCmdOutput("dpkg-query", "-W", "-f=${Status}", name)
+	if err != nil {
+		return false
+	}
+	return dpkgStatusInstalled(out)
+}
+
+// dpkgStatusInstalled reports whether a dpkg-query ${Status} value
+// indicates a package with its files actually present. Pure — no I/O.
+func dpkgStatusInstalled(status string) bool {
+	return strings.TrimSpace(status) == "install ok installed"
 }
