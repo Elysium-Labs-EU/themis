@@ -124,3 +124,40 @@ func TestEnsureSSHDJail(t *testing.T) {
 		t.Errorf("banaction leaked into the wrong section, got %q", got)
 	}
 }
+
+func TestEnsureIgnoreIP(t *testing.T) {
+	// No CIDR requested: no-op, even against an empty config.
+	if got := ensureIgnoreIP("[sshd]\nenabled = true\n", ""); got != "[sshd]\nenabled = true\n" {
+		t.Errorf("expected no-op with empty cidr, got %q", got)
+	}
+
+	// No [DEFAULT] section yet: create one, seeding the loopback baseline
+	// that a bare "ignoreip = <cidr>" would otherwise silently replace.
+	got := ensureIgnoreIP("[sshd]\nenabled = true\n", "203.0.113.5/32")
+	if !sectionHasKeyValue(got, "DEFAULT", "ignoreip", "127.0.0.1/8 ::1 203.0.113.5/32") {
+		t.Errorf("expected seeded ignoreip line in new [DEFAULT] section, got %q", got)
+	}
+
+	// [DEFAULT] exists but has no ignoreip key: same seeding, patched in
+	// place rather than duplicating the section.
+	got = ensureIgnoreIP("[DEFAULT]\nbantime = 3600\n[sshd]\nenabled = true\n", "203.0.113.5/32")
+	if !sectionHasKeyValue(got, "DEFAULT", "ignoreip", "127.0.0.1/8 ::1 203.0.113.5/32") {
+		t.Errorf("expected seeded ignoreip line added to existing [DEFAULT], got %q", got)
+	}
+	if strings.Count(got, "[DEFAULT]") != 1 {
+		t.Errorf("expected exactly one [DEFAULT] section, got %q", got)
+	}
+
+	// Existing ignoreip line: append, don't clobber what's already there.
+	existing := "[DEFAULT]\nignoreip = 127.0.0.1/8 ::1 198.51.100.0/24\n"
+	got = ensureIgnoreIP(existing, "203.0.113.5/32")
+	if !sectionHasKeyValue(got, "DEFAULT", "ignoreip", "127.0.0.1/8 ::1 198.51.100.0/24 203.0.113.5/32") {
+		t.Errorf("expected cidr appended to existing ignoreip line, got %q", got)
+	}
+
+	// Already exempted: no-op, no duplicate token.
+	already := "[DEFAULT]\nignoreip = 127.0.0.1/8 ::1 203.0.113.5/32\n"
+	if got = ensureIgnoreIP(already, "203.0.113.5/32"); got != already {
+		t.Errorf("expected no change when cidr already exempted, got %q", got)
+	}
+}

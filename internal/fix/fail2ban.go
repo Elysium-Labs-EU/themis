@@ -33,12 +33,14 @@ func fail2banFix() Fix {
 // unit-testable against a temp file with fake runners (mirrors
 // sshDisableDirectiveFixAt's rationale).
 func fail2banFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
+	var trustedCIDR string
 	return Fix{
 		TestID:      "THEMIS-FAIL2BAN",
 		Description: "install and enable fail2ban with an sshd jail",
 		Warn:        fail2banWarn,
+		SetTrust:    func(cidr string) { trustedCIDR = cidr },
 		Check:       func() (bool, error) { return fail2banCheck(path, run) },
-		Apply:       func() ([]byte, error) { return fail2banApply(path, run, pkgInstalled) },
+		Apply:       func() ([]byte, error) { return fail2banApply(path, run, pkgInstalled, trustedCIDR) },
 		Revert:      func(data []byte) error { return fail2banRevert(data, path, run) },
 	}
 }
@@ -58,8 +60,9 @@ func fail2banCheck(path string, run cmdRunner) (bool, error) {
 }
 
 // fail2banApply installs fail2ban if needed, patches the [sshd] jail into
-// the config at path, enables the service, and returns the JSON revert state.
-func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]byte, error) {
+// the config at path, exempts trustedCIDR from ever being banned (if set),
+// enables the service, and returns the JSON revert state.
+func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedCIDR string) ([]byte, error) {
 	wasInstalled := pkgInstalled("fail2ban")
 	if !wasInstalled {
 		if err := run("apt-get", "install", "-y", "fail2ban"); err != nil {
@@ -71,6 +74,7 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]byte,
 		return nil, err
 	}
 	updated := ensureSSHDJail(string(original))
+	updated = ensureIgnoreIP(updated, trustedCIDR)
 	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
 		return nil, writeErr
 	}
@@ -209,6 +213,54 @@ func ensureSSHDJail(content string) string {
 	}
 	content = setSectionKey(content, "sshd", "enabled", "true")
 	return setSectionKey(content, "sshd", "banaction", banactionMultiport)
+}
+
+// ensureIgnoreIP exempts cidr from ever being banned by adding it to
+// jail.local's [DEFAULT] ignoreip allowlist, creating the section or
+// extending an existing ignoreip line as needed. A no-op if cidr is empty
+// (no exemption requested) or already listed. When the [DEFAULT] section
+// has to be created, or has no ignoreip line yet, the 127.0.0.1/8 and ::1
+// loopback entries are seeded alongside cidr — fail2ban's own baseline
+// ignoreip default, which a jail.local override would otherwise silently
+// replace rather than extend. Pure — no I/O.
+func ensureIgnoreIP(content, cidr string) string {
+	if cidr == "" {
+		return content
+	}
+	if !hasSection(content, "DEFAULT") {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		return content + "\n[DEFAULT]\nignoreip = 127.0.0.1/8 ::1 " + cidr + "\n"
+	}
+	existing := sectionKeyValue(content, "DEFAULT", "ignoreip")
+	for _, tok := range strings.Fields(existing) {
+		if tok == cidr {
+			return content
+		}
+	}
+	updated := "127.0.0.1/8 ::1 " + cidr
+	if existing != "" {
+		updated = existing + " " + cidr
+	}
+	return setSectionKey(content, "DEFAULT", "ignoreip", updated)
+}
+
+// sectionKeyValue returns the value of "key = value" within the named INI
+// section, or "" if the key isn't set there. Pure — no I/O.
+func sectionKeyValue(content, section, key string) string {
+	inSection := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inSection = trimmed == "["+section+"]"
+			continue
+		}
+		if inSection && strings.HasPrefix(trimmed, key+" =") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, key+" ="))
+		}
+	}
+	return ""
 }
 
 // hasSection reports whether content contains a "[section]" header.
