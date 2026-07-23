@@ -85,6 +85,9 @@ var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply all unsatisfied registered fixes and save rollback state",
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := requireRoot("apply"); err != nil {
+			return err
+		}
 		return runApply(cmd, state.DefaultPath)
 	},
 }

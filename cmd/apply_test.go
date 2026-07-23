@@ -3,11 +3,13 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Elysium-Labs-EU/themis/internal/fix"
 	"github.com/Elysium-Labs-EU/themis/internal/state"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 )
 
 // withRegistry temporarily swaps fix.Registry so apply's mutating Apply()
@@ -187,6 +189,32 @@ func TestApplyDoesNotRecordEntryWhenApplyFailsCleanly(t *testing.T) {
 
 	if _, loadErr := state.Load(statePath); loadErr == nil {
 		t.Fatal("expected no state file to be written when Apply failed with no revert data")
+	}
+}
+
+// TestApplyCmdRunEErrorsWithoutRoot is the regression test for issue #11:
+// unprivileged `themis apply` must fail fast with a clear root-required
+// UserError, before ever reaching resolveFixes(), instead of surfacing
+// whatever unrelated error the underlying fix logic happens to hit first.
+func TestApplyCmdRunEErrorsWithoutRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root")
+	}
+
+	buf := &bytes.Buffer{}
+	applyCmd.SetOut(buf)
+	defer applyCmd.SetOut(nil)
+
+	err := applyCmd.RunE(applyCmd, nil)
+	if err == nil {
+		t.Fatal("expected an error when run without root")
+	}
+	var uerr *ui.UserError
+	if !errors.As(err, &uerr) {
+		t.Fatalf("expected a *ui.UserError in the chain, got %v", err)
+	}
+	if uerr.Hint != "sudo themis apply" {
+		t.Errorf("Hint = %q, want %q", uerr.Hint, "sudo themis apply")
 	}
 }
 

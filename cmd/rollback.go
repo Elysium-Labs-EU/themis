@@ -13,6 +13,10 @@ var rollbackCmd = &cobra.Command{
 	Use:   "rollback",
 	Short: "Revert the fixes applied by the last `themis apply`",
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := requireRoot("rollback"); err != nil {
+			return err
+		}
+
 		snap, err := state.Load(state.DefaultPath)
 		if err != nil {
 			return fmt.Errorf("loading rollback state: %w", err)
