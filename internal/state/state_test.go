@@ -94,6 +94,59 @@ func TestLoadRejectsGroupOrOtherAccessibleMode(t *testing.T) {
 	}
 }
 
+func TestUpsertAppendsNewTestID(t *testing.T) {
+	entries := []Entry{{TestID: "A-FIX", RevertData: []byte("a")}}
+	got := Upsert(entries, Entry{TestID: "B-FIX", RevertData: []byte("b")})
+
+	if len(got) != 2 || got[0].TestID != "A-FIX" || string(got[0].RevertData) != "a" ||
+		got[1].TestID != "B-FIX" || string(got[1].RevertData) != "b" {
+		t.Fatalf("Upsert (new) = %+v, want [A-FIX:a B-FIX:b]", got)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Upsert mutated its input slice: %+v", entries)
+	}
+}
+
+func TestUpsertReplacesExistingTestID(t *testing.T) {
+	entries := []Entry{
+		{TestID: "A-FIX", RevertData: []byte("old")},
+		{TestID: "B-FIX", RevertData: []byte("b")},
+	}
+	got := Upsert(entries, Entry{TestID: "A-FIX", RevertData: []byte("new")})
+
+	if len(got) != 2 || got[0].TestID != "A-FIX" || string(got[0].RevertData) != "new" ||
+		got[1].TestID != "B-FIX" || string(got[1].RevertData) != "b" {
+		t.Fatalf("Upsert (replace) = %+v, want [A-FIX:new B-FIX:b]", got)
+	}
+	if string(entries[0].RevertData) != "old" {
+		t.Fatalf("Upsert mutated its input slice: %+v", entries)
+	}
+}
+
+func TestWithoutRemovesMatchingEntry(t *testing.T) {
+	entries := []Entry{
+		{TestID: "A-FIX", RevertData: []byte("a")},
+		{TestID: "B-FIX", RevertData: []byte("b")},
+	}
+	got := Without(entries, "A-FIX")
+
+	if len(got) != 1 || got[0].TestID != "B-FIX" {
+		t.Fatalf("Without = %+v, want just B-FIX", got)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("Without mutated its input slice: %+v", entries)
+	}
+}
+
+func TestWithoutOnMissingTestIDIsNoOp(t *testing.T) {
+	entries := []Entry{{TestID: "A-FIX", RevertData: []byte("a")}}
+	got := Without(entries, "NOT-THERE")
+
+	if len(got) != 1 || got[0].TestID != "A-FIX" {
+		t.Fatalf("Without (missing) = %+v, want unchanged [A-FIX]", got)
+	}
+}
+
 func TestVerifyOwnerAndModeRejectsWrongUID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := Save(path, Snapshot{}); err != nil {

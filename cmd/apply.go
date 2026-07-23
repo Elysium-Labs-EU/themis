@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"github.com/Elysium-Labs-EU/themis/internal/fix"
@@ -19,13 +21,27 @@ var applyForce bool
 // rather than every fix already applied. kill -9 can't be trapped by a
 // signal handler, so incremental durability of already-succeeded work is
 // the only way to make that case safe.
+//
+// Entries already on disk from an earlier `apply` run are loaded first and
+// merged by TestID (state.Upsert) rather than discarded, so this run's
+// state.Save calls never silently drop rollback data an earlier run wrote.
 func runApply(cmd *cobra.Command, statePath string) error {
 	planned, err := resolveFixes()
 	if err != nil {
 		return err
 	}
 
-	snap := state.Snapshot{AppliedAt: time.Now().UTC()}
+	existing, err := state.Load(statePath)
+	switch {
+	case err == nil:
+	case errors.Is(err, fs.ErrNotExist):
+		existing = state.Snapshot{}
+	default:
+		return fmt.Errorf("loading existing rollback state: %w", err)
+	}
+
+	snap := state.Snapshot{AppliedAt: time.Now().UTC(), Entries: existing.Entries}
+	var appliedThisRun int
 	for _, p := range planned {
 		if p.Satisfied {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.TextMuted.Render("[skip]   "), ui.TextBold.Render(p.TestID))
@@ -53,7 +69,7 @@ func runApply(cmd *cobra.Command, statePath string) error {
 			// later rollback — knows about the partial mutation instead
 			// of losing all trace of it.
 			if revertData != nil {
-				snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
+				snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
 				if saveErr := state.Save(statePath, snap); saveErr != nil {
 					return fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", p.TestID, err, saveErr)
 				}
@@ -61,23 +77,24 @@ func runApply(cmd *cobra.Command, statePath string) error {
 			}
 			// Whatever already succeeded was saved to statePath as soon
 			// as it happened, so it's already revertible.
-			if len(snap.Entries) > 0 {
-				return fmt.Errorf("applying %s: %w (rollback state for %d earlier fix(es) already saved to %s)", p.TestID, err, len(snap.Entries), statePath)
+			if appliedThisRun > 0 {
+				return fmt.Errorf("applying %s: %w (rollback state for %d earlier fix(es) already saved to %s)", p.TestID, err, appliedThisRun, statePath)
 			}
 			return fmt.Errorf("applying %s: %w", p.TestID, err)
 		}
-		snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
+		snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
+		appliedThisRun++
 		if err := state.Save(statePath, snap); err != nil {
 			return fmt.Errorf("applying %s: succeeded but failed to save rollback state: %w", p.TestID, err)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelSuccess.Render("[applied]"), ui.TextBold.Render(p.TestID), p.Description)
 	}
 
-	if len(snap.Entries) == 0 {
+	if appliedThisRun == 0 {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s all checks already satisfied — nothing to apply\n", ui.LabelSuccess.Render("✓"))
 		return nil
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), len(snap.Entries), statePath)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), appliedThisRun, statePath)
 	return nil
 }
 

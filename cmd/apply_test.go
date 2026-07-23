@@ -190,6 +190,88 @@ func TestApplyDoesNotRecordEntryWhenApplyFailsCleanly(t *testing.T) {
 	}
 }
 
+// TestApplyMergesWithPreviouslySavedState is the regression test for issue
+// #21: runApply used to build a fresh Snapshot every invocation, so a
+// second `apply` run whose state.Save calls only ever knew about this run's
+// own entries would silently overwrite state.json and lose rollback data
+// from an earlier apply run's fixes that this run didn't touch (e.g.
+// because they were already satisfied and skipped, or simply never
+// resolved by the registry snapshot used this time). Two separate runApply
+// calls against the same statePath, each applying a different fix, must
+// leave both fixes' entries on disk afterward.
+func TestApplyMergesWithPreviouslySavedState(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "first fix", func() ([]byte, error) {
+			return []byte("a"), nil
+		}),
+	})
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("first runApply: %v", err)
+	}
+
+	withRegistry(t, map[string]fix.Fix{
+		"B-FIX": unsatisfiedFix("B-FIX", "second fix", func() ([]byte, error) {
+			return []byte("b"), nil
+		}),
+	})
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("second runApply: %v", err)
+	}
+
+	snap, err := state.Load(statePath)
+	if err != nil {
+		t.Fatalf("Load after second run: %v", err)
+	}
+	if len(snap.Entries) != 2 || snap.Entries[0].TestID != "A-FIX" || snap.Entries[1].TestID != "B-FIX" {
+		t.Fatalf("state after second run = %+v, want [A-FIX B-FIX] (second run must not overwrite the first run's entry)", snap.Entries)
+	}
+}
+
+// TestApplyReapplyingSameFixUpdatesItsEntry ensures a fix that gets applied
+// again (e.g. because its Check regressed) updates its own rollback entry
+// in place rather than appending a duplicate.
+func TestApplyReapplyingSameFixUpdatesItsEntry(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "first apply", func() ([]byte, error) {
+			return []byte("first"), nil
+		}),
+	})
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("first runApply: %v", err)
+	}
+
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "reapplied", func() ([]byte, error) {
+			return []byte("second"), nil
+		}),
+	})
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("second runApply: %v", err)
+	}
+
+	snap, err := state.Load(statePath)
+	if err != nil {
+		t.Fatalf("Load after second run: %v", err)
+	}
+	if len(snap.Entries) != 1 || snap.Entries[0].TestID != "A-FIX" || string(snap.Entries[0].RevertData) != "second" {
+		t.Fatalf("state after reapply = %+v, want single A-FIX entry with RevertData %q", snap.Entries, "second")
+	}
+}
+
 func TestApplyNothingToApplySkipsSave(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 

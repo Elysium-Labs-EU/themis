@@ -121,6 +121,40 @@ func verifyOwnerAndMode(info fs.FileInfo, wantUID int) error {
 	return nil
 }
 
+// Upsert returns a copy of entries with e appended, or with the existing
+// entry sharing e.TestID replaced by e if one is already present. Pure —
+// entries is never mutated in place, so a caller holding the original slice
+// still sees the pre-upsert values.
+func Upsert(entries []Entry, e Entry) []Entry {
+	out := make([]Entry, 0, len(entries)+1)
+	replaced := false
+	for _, existing := range entries {
+		if existing.TestID == e.TestID {
+			out = append(out, e)
+			replaced = true
+			continue
+		}
+		out = append(out, existing)
+	}
+	if !replaced {
+		out = append(out, e)
+	}
+	return out
+}
+
+// Without returns a copy of entries with the entry matching testID removed,
+// if present. Pure — entries is never mutated in place.
+func Without(entries []Entry, testID string) []Entry {
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.TestID == testID {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // Clear removes the state file after a successful rollback. Missing file
 // is not an error — there is nothing to clear.
 func Clear(path string) error {
