@@ -129,12 +129,17 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f -name "themis-linux-*" -exec cp {} release/ \;
+          # install.sh rides along in the same signed manifest as the
+          # binaries (see "Generate checksums" below) -- F-020: the
+          # installer script itself had no integrity check before being
+          # piped to bash, even though it verifies the binary it downloads.
+          cp install.sh release/install.sh
           ls -lh release/
 
       - name: Generate checksums
         run: |
           cd release
-          sha256sum themis-linux-* > sha256sums.txt
+          sha256sum themis-linux-* install.sh > sha256sums.txt
           cat sha256sums.txt
 
       - name: Sign checksums
@@ -225,6 +230,12 @@ jobs:
           sudo bash install.sh
           ```
 
+          > `main` is a mutable branch. For a verified install, download
+          > `install.sh` from this release's assets instead (immutable, and
+          > covered by the checksum/signature below) — see
+          > [Verified installation](https://github.com/REPO_PLACEHOLDER/blob/main/README.md#verified-installation)
+          > in the README.
+
           ### Manual Installation
 
           Download the appropriate binary for your architecture:
@@ -239,7 +250,9 @@ jobs:
 
           ### Verify Download
 
-          Check the `sha256sums.txt` file and verify:
+          Check the `sha256sums.txt` file and verify (it also covers
+          `install.sh` -- download it from this release, not `main`, if you
+          want it checksum/signature-verified before running):
           ```bash
           sha256sum -c sha256sums.txt
           ```
@@ -277,6 +290,7 @@ jobs:
           files: |
             release/themis-linux-amd64
             release/themis-linux-arm64
+            release/install.sh
             release/sha256sums.txt
             release/sha256sums.txt.sig
         env:

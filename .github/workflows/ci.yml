@@ -89,6 +89,16 @@ jobs:
         env:
           GO_CRAP_BASE: origin/${{ github.base_ref }}
 
+  signing-key-sync:
+    name: Signing Key Sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check install.sh and cmd/update.go embed the same signing key
+        run: bash scripts/check-signing-key-sync.sh
+
   verify-build:
     name: Verify Build
     runs-on: ubuntu-latest

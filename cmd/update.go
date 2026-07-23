@@ -240,6 +240,15 @@ qAeiDXd1PrPNR3I1N1radAb1df3CPt0WjZQmuTesJLQiDL91WwVt7fraSA==
 // make every existing release (and install.sh, which tracks main) refuse to
 // install. Once a signed release exists, flip to true so an unsigned or
 // signature-stripped release can no longer be installed silently.
+//
+// Deliberately NOT flipped as part of the issue #29 signing-integrity fix
+// (install.sh's stale embedded key, see releaseSigningPublicKeyPEM below):
+// that task closed the key-drift gap and verified it against the current
+// v0.0.3-rc.1 release's signature, but flipping this to a hard fail is a
+// separate human rollout decision — it should only happen once a real
+// tagged release has been verified end-to-end against the current key by
+// someone deliberately deciding to make unsigned releases fatal, not as a
+// side effect of a drift fix.
 const requireReleaseSignature = false
 
 // allowedDownloadHost is the only host themis will fetch an executable from.
