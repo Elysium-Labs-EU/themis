@@ -13,11 +13,18 @@ import (
 type PlannedFix struct {
 	TestID      string
 	Description string
+	// WarnMessage mirrors cmd/apply.go's own Fix.Warn check, so plan reports
+	// the same "skipped, no mutation" outcome apply will actually produce
+	// for an unsatisfied fix apply would warn on instead of applying.
+	WarnMessage string
 	Satisfied   bool
+	Warned      bool
 }
 
 // resolveFixes checks every registered Fix and returns the result in a
-// stable, sorted order.
+// stable, sorted order. For an unsatisfied fix with a Warn func, Warn is
+// also evaluated here so the result matches what cmd/apply.go's runApply
+// will actually do, rather than just what Check reports.
 func resolveFixes() ([]PlannedFix, error) {
 	ids := make([]string, 0, len(fix.Registry))
 	for id := range fix.Registry {
@@ -32,7 +39,18 @@ func resolveFixes() ([]PlannedFix, error) {
 		if err != nil {
 			return nil, fmt.Errorf("checking %s: %w", id, err)
 		}
-		planned = append(planned, PlannedFix{TestID: id, Description: f.Description, Satisfied: satisfied})
+		p := PlannedFix{TestID: id, Description: f.Description, Satisfied: satisfied}
+		if !satisfied && f.Warn != nil {
+			msg, detected, warnErr := f.Warn()
+			if warnErr != nil {
+				return nil, fmt.Errorf("checking %s for warnings: %w", id, warnErr)
+			}
+			if detected {
+				p.Warned = true
+				p.WarnMessage = msg
+			}
+		}
+		planned = append(planned, p)
 	}
 	return planned, nil
 }
@@ -64,16 +82,21 @@ var planCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		toApply := 0
+		toApply, warned := 0, 0
 		for _, p := range planned {
-			if p.Satisfied {
+			switch {
+			case p.Satisfied:
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [ok]      %s — %s\n", p.TestID, p.Description)
-				continue
+			case p.Warned:
+				warned++
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [warn]    %s — %s\n", p.TestID, p.WarnMessage)
+			default:
+				toApply++
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [+apply]  %s — %s\n", p.TestID, p.Description)
 			}
-			toApply++
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [+apply]  %s — %s\n", p.TestID, p.Description)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%d fix(es) would be applied, %d already satisfied.\n", toApply, len(planned)-toApply)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%d fix(es) would be applied, %d already satisfied, %d would be skipped with a warning.\n",
+			toApply, len(planned)-toApply-warned, warned)
 		return nil
 	},
 }
