@@ -17,7 +17,12 @@ type Finding struct {
 	// setting change). Often "-"; when present, the finding is
 	// actionable even without a themis fix tracking it.
 	Solution string
-	Kind     string // "suggestion" or "warning"
+	// Kind is "suggestion" or "warning" for a normal audit finding, or
+	// "drift" when a Source is reporting that a themis fix applied in a
+	// prior run no longer holds (see internal/osquery). Drift findings
+	// are routed separately by internal/checkreport rather than folded
+	// into the generic finding list.
+	Kind string
 	// Source is the name of the Source that produced this finding, e.g.
 	// "lynis".
 	Source string

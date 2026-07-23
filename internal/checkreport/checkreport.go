@@ -28,6 +28,9 @@ type Finding struct {
 	// Solution is a source's own remediation hint, e.g. a command to
 	// run or setting to change. "-" when the source gave none.
 	Solution string
+	// Details carries a drift finding's own context (e.g. when the fix
+	// was applied and confirmed satisfied). Empty for a normal finding.
+	Details string
 	// Sources lists the name of every audit source that reported this
 	// finding (e.g. "lynis").
 	Sources []string
@@ -44,14 +47,20 @@ type Finding struct {
 type Report struct {
 	Findings []Finding
 	Native   []Fix
+	// Drift holds "was satisfied, now isn't" findings from drift-capable
+	// sources (currently internal/osquery's audit.Finding{Kind: "drift"}
+	// results). Kept separate from Findings so a regression in a fix
+	// that already ran doesn't read like just another never-applied
+	// suggestion.
+	Drift []Finding
 }
 
 // Hidden returns the findings that are not actionable.
 func (r Report) Hidden() []Finding {
 	var hidden []Finding
-	for _, f := range r.Findings {
-		if !f.Actionable {
-			hidden = append(hidden, f)
+	for i := range r.Findings {
+		if !r.Findings[i].Actionable {
+			hidden = append(hidden, r.Findings[i])
 		}
 	}
 	return hidden
@@ -76,6 +85,18 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 	seen := make(map[string]int, len(findings))
 
 	for _, f := range findings {
+		if f.Kind == "drift" {
+			report.Drift = append(report.Drift, Finding{
+				TestID:      f.TestID,
+				Kind:        f.Kind,
+				Description: f.Description,
+				Details:     f.Details,
+				Sources:     []string{f.Source},
+				Actionable:  true,
+			})
+			continue
+		}
+
 		key := f.TestID + "|" + f.Kind
 		if idx, ok := seen[key]; ok {
 			existing := &report.Findings[idx]
