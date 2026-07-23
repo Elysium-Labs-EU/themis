@@ -72,6 +72,49 @@ func TestFail2banFixLifecycle(t *testing.T) {
 	}
 }
 
+// TestFail2banFixSetTrustExemptsCIDR is the regression test for issue #20:
+// SetTrust must be wired through to Apply so an operator's chosen network
+// ends up in jail.local's ignoreip allowlist, not silently dropped.
+func TestFail2banFixSetTrustExemptsCIDR(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{}
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return r.installed })
+
+	f.SetTrust("203.0.113.5/32")
+	if _, err := f.Apply(); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read jail.local: %v", err)
+	}
+	if !sectionHasKeyValue(string(got), "DEFAULT", "ignoreip", "127.0.0.1/8 ::1 203.0.113.5/32") {
+		t.Fatalf("expected ignoreip to exempt 203.0.113.5/32, got %q", got)
+	}
+}
+
+// TestFail2banFixNoTrustLeavesIgnoreIPUntouched confirms the default
+// (SetTrust never called, or called with "") applies exactly as before —
+// no ignoreip section appears.
+func TestFail2banFixNoTrustLeavesIgnoreIPUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{}
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return r.installed })
+
+	if _, err := f.Apply(); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read jail.local: %v", err)
+	}
+	if strings.Contains(string(got), "ignoreip") {
+		t.Fatalf("expected no ignoreip line without a trust decision, got %q", got)
+	}
+}
+
 func TestFail2banApplyInstallFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jail.local")
 	r := &fakeRunner{failOn: "apt-get install"}

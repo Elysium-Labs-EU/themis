@@ -14,8 +14,13 @@ type Fix struct {
 	// tool already managing the same surface) so the fix is skipped and the
 	// message shown instead of applied outright. A caller can still force
 	// the apply through once they've reviewed it.
-	Warn   func() (message string, detected bool, err error)
-	TestID string
+	Warn func() (message string, detected bool, err error)
+	// SetTrust, if set, means this fix can affect trusted networks/IPs
+	// (e.g. fail2ban's ignoreip allowlist) — `apply` resolves a CIDR to
+	// exempt (interactively, or from --yes/--trust) and calls SetTrust with
+	// it (or "" for no exemption) before Apply runs.
+	SetTrust func(cidr string)
+	TestID   string
 	// LynisID is the raw Lynis test ID this fix addresses, when it
 	// differs from TestID (e.g. one Lynis finding split across several
 	// fixes). Empty means LynisID == TestID.
