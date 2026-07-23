@@ -43,6 +43,37 @@ Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for
 
 `install.sh` and `themis system update` only download from `github.com` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
 
+That covers the *binary* themis downloads for you — but the quick-install one-liners above fetch `install.sh` itself from `main`, a mutable branch with no integrity check on the script text before it's piped to `bash`.
+
+### Verified installation
+
+If you're installing on a machine you care about, use this path instead of the quick-install one-liners: `install.sh` is included in every release's signed `sha256sums.txt`, so fetching it from the release (not `main`) lets you verify it the same way as the binary, before running it.
+
+```bash
+VERSION=v0.0.3-rc.1   # pin to the release you intend to install -- see: https://github.com/Elysium-Labs-EU/themis/releases
+REPO=Elysium-Labs-EU/themis
+
+curl -sSL -o install.sh        "https://github.com/${REPO}/releases/download/${VERSION}/install.sh"
+curl -sSL -o sha256sums.txt     "https://github.com/${REPO}/releases/download/${VERSION}/sha256sums.txt"
+curl -sSL -o sha256sums.txt.sig "https://github.com/${REPO}/releases/download/${VERSION}/sha256sums.txt.sig"
+
+cat > release-signing-pubkey.pem <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZo6eWxjF1xhHMI/MyUNptSdkxuHM
+qAeiDXd1PrPNR3I1N1radAb1df3CPt0WjZQmuTesJLQiDL91WwVt7fraSA==
+-----END PUBLIC KEY-----
+EOF
+
+# 1. sha256sums.txt itself is genuinely from us
+openssl dgst -sha256 -verify release-signing-pubkey.pem -signature sha256sums.txt.sig sha256sums.txt
+# 2. install.sh matches what that manifest attests to
+sha256sum -c <(grep install.sh sha256sums.txt)
+
+sudo bash install.sh
+```
+
+The public key above must match `RELEASE_SIGNING_PUBKEY` in `install.sh` and `releaseSigningPublicKeyPEM` in `cmd/update.go` exactly — CI's `check-signing-key-sync.sh` gates on that, but verifying against the copy in this README (fetched independently of the release itself) is what actually roots the trust chain in something other than the artifact you're checking.
+
 ## Quick Start
 
 ```bash
