@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Elysium-Labs-EU/themis/internal/fix"
@@ -19,6 +20,13 @@ var applyForce bool
 // rather than every fix already applied. kill -9 can't be trapped by a
 // signal handler, so incremental durability of already-succeeded work is
 // the only way to make that case safe.
+//
+// Each planned fix is independent of the others, so one fix failing (e.g.
+// a Debian-specific fix on a platform whose package manager it hardcodes
+// isn't present) does not stop the rest from being attempted — the loop
+// always runs every planned fix and reports a summary at the end. A
+// non-nil error is returned once the whole run is done if any fix failed,
+// so callers still see apply as unsuccessful overall (issue #9).
 func runApply(cmd *cobra.Command, statePath string) error {
 	planned, err := resolveFixes()
 	if err != nil {
@@ -26,6 +34,7 @@ func runApply(cmd *cobra.Command, statePath string) error {
 	}
 
 	snap := state.Snapshot{AppliedAt: time.Now().UTC()}
+	var failures []string
 	for _, p := range planned {
 		if p.Satisfied {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.TextMuted.Render("[skip]   "), ui.TextBold.Render(p.TestID))
@@ -35,7 +44,9 @@ func runApply(cmd *cobra.Command, statePath string) error {
 		if f.Warn != nil {
 			msg, detected, warnErr := f.Warn()
 			if warnErr != nil {
-				return fmt.Errorf("checking %s for warnings: %w", p.TestID, warnErr)
+				failures = append(failures, fmt.Sprintf("checking %s for warnings: %v", p.TestID, warnErr))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — checking for warnings: %s\n", ui.LabelError.Render("[error]  "), ui.TextBold.Render(p.TestID), warnErr)
+				continue
 			}
 			if detected && !applyForce {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelWarning.Render("[warn]   "), ui.TextBold.Render(p.TestID), msg)
@@ -43,8 +54,8 @@ func runApply(cmd *cobra.Command, statePath string) error {
 				continue
 			}
 		}
-		revertData, err := f.Apply()
-		if err != nil {
+		revertData, applyErr := f.Apply()
+		if applyErr != nil {
 			// Some Fix implementations write their target file and then
 			// fail at a later step (e.g. a service reload). That write is
 			// real and already on disk, so a Fix.Apply() that knows this
@@ -55,29 +66,40 @@ func runApply(cmd *cobra.Command, statePath string) error {
 			if revertData != nil {
 				snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
 				if saveErr := state.Save(statePath, snap); saveErr != nil {
-					return fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", p.TestID, err, saveErr)
+					failures = append(failures, fmt.Sprintf("applying %s: %v (also failed to save partial rollback state: %v)", p.TestID, applyErr, saveErr))
+				} else {
+					failures = append(failures, fmt.Sprintf("applying %s: %v (partial mutation recorded and revertible)", p.TestID, applyErr))
 				}
-				return fmt.Errorf("applying %s: %w (partial mutation recorded and revertible; rollback state saved to %s)", p.TestID, err, statePath)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelError.Render("[error]  "), ui.TextBold.Render(p.TestID), applyErr)
+				continue
 			}
-			// Whatever already succeeded was saved to statePath as soon
-			// as it happened, so it's already revertible.
-			if len(snap.Entries) > 0 {
-				return fmt.Errorf("applying %s: %w (rollback state for %d earlier fix(es) already saved to %s)", p.TestID, err, len(snap.Entries), statePath)
-			}
-			return fmt.Errorf("applying %s: %w", p.TestID, err)
+			failures = append(failures, fmt.Sprintf("applying %s: %v", p.TestID, applyErr))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelError.Render("[error]  "), ui.TextBold.Render(p.TestID), applyErr)
+			continue
 		}
 		snap.Entries = append(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
-		if err := state.Save(statePath, snap); err != nil {
-			return fmt.Errorf("applying %s: succeeded but failed to save rollback state: %w", p.TestID, err)
+		if saveErr := state.Save(statePath, snap); saveErr != nil {
+			failures = append(failures, fmt.Sprintf("applying %s: succeeded but failed to save rollback state: %v", p.TestID, saveErr))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelError.Render("[error]  "), ui.TextBold.Render(p.TestID), saveErr)
+			continue
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelSuccess.Render("[applied]"), ui.TextBold.Render(p.TestID), p.Description)
 	}
 
-	if len(snap.Entries) == 0 {
+	if len(snap.Entries) == 0 && len(failures) == 0 {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s all checks already satisfied — nothing to apply\n", ui.LabelSuccess.Render("✓"))
 		return nil
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), len(snap.Entries), statePath)
+	if len(snap.Entries) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s applied %d fix(es). Rollback state saved to %s\n", ui.LabelSuccess.Render("✓"), len(snap.Entries), statePath)
+	}
+	if len(failures) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %d fix(es) failed to apply:\n", ui.LabelError.Render("✗"), len(failures))
+		for _, msg := range failures {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", msg)
+		}
+		return fmt.Errorf("%d fix(es) failed to apply: %s", len(failures), strings.Join(failures, "; "))
+	}
 	return nil
 }
 

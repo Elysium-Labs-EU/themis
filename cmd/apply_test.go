@@ -116,6 +116,48 @@ func TestApplyPreservesStateForFixesAppliedBeforeAFailure(t *testing.T) {
 	}
 }
 
+// TestApplyContinuesToUnrelatedFixesAfterAFailure is the regression test
+// for issue #9: a fix failing (e.g. a Debian-specific fix shelling out to
+// a package manager that doesn't exist on the host, such as apt-get on
+// Alpine) must not abort the whole run — unrelated fixes later in the
+// planned order still need to be attempted and applied.
+func TestApplyContinuesToUnrelatedFixesAfterAFailure(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+
+	var bApplyCalled bool
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "platform-specific fix that fails", func() ([]byte, error) {
+			return nil, errors.New("resolving apt-get: apt-get: not found in trusted dirs")
+		}),
+		"B-FIX": unsatisfiedFix("B-FIX", "unrelated, platform-neutral fix", func() ([]byte, error) {
+			bApplyCalled = true
+			return []byte("b"), nil
+		}),
+	})
+
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	err := runApply(cmd, statePath)
+	if err == nil {
+		t.Fatal("expected runApply to return an error since A-FIX failed")
+	}
+
+	if !bApplyCalled {
+		t.Fatal("B-FIX's Apply was never called — a failure earlier in the run aborted the rest instead of continuing to unrelated fixes")
+	}
+
+	snap, loadErr := state.Load(statePath)
+	if loadErr != nil {
+		t.Fatalf("Load after partial failure: %v", loadErr)
+	}
+	if len(snap.Entries) != 1 || snap.Entries[0].TestID != "B-FIX" {
+		t.Fatalf("state after run = %+v, want just B-FIX (A-FIX failed with no revert data, so it has no entry)", snap.Entries)
+	}
+}
+
 // TestApplyRecordsPartialRevertDataOnError is the regression test for
 // issue #10: a Fix.Apply() that writes its target file and then fails at a
 // later step (e.g. a service reload) may return non-nil revertData
