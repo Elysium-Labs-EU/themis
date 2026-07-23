@@ -84,29 +84,52 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 		}
 	}
 
-	if opts.SkipIfUnchanged {
-		// A fingerprinting error (e.g. a permission problem reading one
-		// of the config paths) isn't fatal — it just means we can't
-		// prove nothing changed, so fall through to a full scan.
-		profile := scanProfile(opts.Quick)
-		if skip, skipErr := shouldSkip(fingerprintPaths, dpkgStatusPath, FingerprintPath, ReportPath, profile); skipErr == nil && skip {
-			return readReport(ReportPath)
-		}
+	if findings, ok := trySkip(opts, fingerprintPaths, dpkgStatusPath, FingerprintPath, ReportPath); ok {
+		return findings, nil
 	}
 
 	if runErr := runLynisAudit(ctx, lynisBin, opts); runErr != nil {
 		return nil, runErr
 	}
 
-	if opts.SkipIfUnchanged {
-		// Best-effort: if this fails to save, the next run just won't
-		// skip and will pay for another full scan instead.
-		if fp, fpErr := readFingerprint(fingerprintPaths, dpkgStatusPath, scanProfile(opts.Quick)); fpErr == nil {
-			_ = saveFingerprint(FingerprintPath, fp)
-		}
-	}
+	persistFingerprint(opts, fingerprintPaths, dpkgStatusPath, FingerprintPath)
 
 	return readReport(ReportPath)
+}
+
+// trySkip reports whether a lynis re-scan can be skipped per
+// opts.SkipIfUnchanged, returning the last report's findings when it can.
+// ok is false whenever a full run is still needed: the option is off, the
+// fingerprint doesn't match (or errored reading it — a fingerprinting
+// problem isn't fatal, it just means we can't prove nothing changed), or
+// the cached report itself can no longer be read.
+func trySkip(opts Options, configPaths []string, pkgListPath, fingerprintCachePath, reportPath string) ([]Finding, bool) {
+	if !opts.SkipIfUnchanged {
+		return nil, false
+	}
+	skip, err := shouldSkip(configPaths, pkgListPath, fingerprintCachePath, reportPath, scanProfile(opts.Quick))
+	if err != nil || !skip {
+		return nil, false
+	}
+	findings, err := readReport(reportPath)
+	if err != nil {
+		return nil, false
+	}
+	return findings, true
+}
+
+// persistFingerprint saves the post-scan fingerprint for a later
+// SkipIfUnchanged run to compare against, per opts.SkipIfUnchanged. Best-
+// effort: an error here isn't fatal to the scan that just ran — it just
+// means the next run won't skip and will pay for another full scan
+// instead.
+func persistFingerprint(opts Options, configPaths []string, pkgListPath, fingerprintCachePath string) {
+	if !opts.SkipIfUnchanged {
+		return
+	}
+	if fp, err := readFingerprint(configPaths, pkgListPath, scanProfile(opts.Quick)); err == nil {
+		_ = saveFingerprint(fingerprintCachePath, fp)
+	}
 }
 
 // runLynisAudit runs `lynis audit system`, tolerating the non-zero exit
