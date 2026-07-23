@@ -1,12 +1,30 @@
 package lynis
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 )
+
+func TestAuditRequiresRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("test process is running as root; the requires-root guard can't be exercised")
+	}
+	_, err := Audit(context.Background(), Options{})
+	if err == nil {
+		t.Fatal("expected an error when not running as root")
+	}
+	var userErr *ui.UserError
+	if !errors.As(err, &userErr) {
+		t.Fatalf("error = %v (%T), want *ui.UserError", err, err)
+	}
+}
 
 func TestReadReportParsesFindings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lynis-report.dat")
@@ -119,6 +137,119 @@ func TestLynisNotFoundErrorHintIsPlatformNeutral(t *testing.T) {
 		if !strings.Contains(got.Hint, dir) {
 			t.Errorf("Hint = %q, want it to mention trusted dir %q", got.Hint, dir)
 		}
+	}
+}
+
+func TestTrySkipDisabledOptionAlwaysRunsFull(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	reportPath := filepath.Join(dir, "report.dat")
+	writeFileT(t, reportPath, "suggestion[]=SSH-1|x|-|-|\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+
+	cur, err := readFingerprint(nil, pkgList, scanProfile(false))
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if saveErr := saveFingerprint(fingerprintPath, cur); saveErr != nil {
+		t.Fatalf("saveFingerprint: %v", saveErr)
+	}
+
+	findings, ok := trySkip(Options{SkipIfUnchanged: false}, nil, pkgList, fingerprintPath, reportPath)
+	if ok {
+		t.Error("trySkip should never skip when SkipIfUnchanged is off")
+	}
+	if findings != nil {
+		t.Errorf("findings = %v, want nil when not skipping", findings)
+	}
+}
+
+func TestTrySkipReusesReportWhenUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	reportPath := filepath.Join(dir, "report.dat")
+	writeFileT(t, reportPath, "suggestion[]=SSH-7408|Harden SSH config|-|Change PermitRootLogin|\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+
+	opts := Options{SkipIfUnchanged: true}
+	cur, err := readFingerprint(nil, pkgList, scanProfile(opts.Quick))
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if saveErr := saveFingerprint(fingerprintPath, cur); saveErr != nil {
+		t.Fatalf("saveFingerprint: %v", saveErr)
+	}
+
+	findings, ok := trySkip(opts, nil, pkgList, fingerprintPath, reportPath)
+	if !ok {
+		t.Fatal("trySkip should skip and reuse the report when nothing changed")
+	}
+	if len(findings) != 1 || findings[0].TestID != "SSH-7408" {
+		t.Errorf("findings = %+v, want the report's SSH-7408 finding", findings)
+	}
+}
+
+func TestTrySkipFallsThroughWhenChanged(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	reportPath := filepath.Join(dir, "report.dat")
+	writeFileT(t, reportPath, "suggestion[]=SSH-1|x|-|-|\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+
+	opts := Options{SkipIfUnchanged: true}
+	cur, err := readFingerprint(nil, pkgList, scanProfile(opts.Quick))
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if saveErr := saveFingerprint(fingerprintPath, cur); saveErr != nil {
+		t.Fatalf("saveFingerprint: %v", saveErr)
+	}
+	writeFileT(t, pkgList, "Package: foo\nPackage: bar\n")
+
+	if _, ok := trySkip(opts, nil, pkgList, fingerprintPath, reportPath); ok {
+		t.Error("trySkip should not skip once the package list changed")
+	}
+}
+
+func TestPersistFingerprintDisabledOptionIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+
+	persistFingerprint(Options{SkipIfUnchanged: false}, nil, pkgList, fingerprintPath)
+
+	got, err := loadFingerprint(fingerprintPath)
+	if err != nil {
+		t.Fatalf("loadFingerprint: %v", err)
+	}
+	if got != "" {
+		t.Errorf("loadFingerprint = %q, want empty: persistFingerprint should be a no-op when SkipIfUnchanged is off", got)
+	}
+}
+
+func TestPersistFingerprintSavesCurrentState(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+	opts := Options{SkipIfUnchanged: true, Quick: true}
+
+	persistFingerprint(opts, nil, pkgList, fingerprintPath)
+
+	want, err := readFingerprint(nil, pkgList, scanProfile(opts.Quick))
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	got, err := loadFingerprint(fingerprintPath)
+	if err != nil {
+		t.Fatalf("loadFingerprint: %v", err)
+	}
+	if got != want {
+		t.Errorf("loadFingerprint = %q, want %q", got, want)
 	}
 }
 
