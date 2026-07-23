@@ -15,6 +15,7 @@ type fakeRunner struct {
 	failOn    string // substring of "name args"; matching calls return an error
 	calls     []string
 	active    bool
+	enabled   bool
 	installed bool
 }
 
@@ -27,8 +28,18 @@ func (r *fakeRunner) run(name string, args ...string) error {
 	switch {
 	case strings.Contains(joined, "enable --now"):
 		r.active = true
+		r.enabled = true
 	case strings.Contains(joined, "disable --now"):
 		r.active = false
+		r.enabled = false
+	case joined == "systemctl enable fail2ban":
+		r.enabled = true
+	case joined == "systemctl disable fail2ban":
+		r.enabled = false
+	case joined == "systemctl stop fail2ban":
+		r.active = false
+	case joined == "systemctl restart fail2ban":
+		r.active = true
 	}
 	return nil
 }
@@ -38,6 +49,9 @@ func (r *fakeRunner) isActive(name string, args ...string) error {
 	r.calls = append(r.calls, joined)
 	if strings.Contains(joined, "is-active") && !r.active {
 		return errors.New("inactive")
+	}
+	if strings.Contains(joined, "is-enabled") && !r.enabled {
+		return errors.New("disabled")
 	}
 	return r.run(name, args...)
 }
@@ -103,6 +117,57 @@ func TestFail2banRevertRestoresExistingConfig(t *testing.T) {
 	}
 	if string(got) != prior {
 		t.Fatalf("revert restored %q, want %q", got, prior)
+	}
+}
+
+// TestFail2banRevertStopsAndDisablesWhenInactiveBefore reproduces issue #14:
+// fail2ban was installed but inactive/disabled before Apply (the common
+// Debian case). Revert must leave it stopped and disabled again, not just
+// restart it into an active+enabled state it never had before Apply.
+func TestFail2banRevertStopsAndDisablesWhenInactiveBefore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{installed: true} // installed, but inactive/disabled before Apply
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return r.installed })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !r.active || !r.enabled {
+		t.Fatalf("expected Apply to leave fail2ban active+enabled, got active=%v enabled=%v", r.active, r.enabled)
+	}
+
+	if revErr := f.Revert(data); revErr != nil {
+		t.Fatalf("Revert: %v", revErr)
+	}
+	if r.active {
+		t.Error("expected Revert to stop fail2ban that was inactive before Apply")
+	}
+	if r.enabled {
+		t.Error("expected Revert to disable fail2ban that was disabled before Apply")
+	}
+}
+
+// TestFail2banRevertRestartsWhenActiveBefore covers the complementary case:
+// fail2ban was already active+enabled before Apply, so Revert must restore
+// the config and leave it running rather than stopping/disabling it.
+func TestFail2banRevertRestartsWhenActiveBefore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	r := &fakeRunner{installed: true, active: true, enabled: true}
+	f := fail2banFixWith(path, r.isActive, func(string) bool { return r.installed })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if revErr := f.Revert(data); revErr != nil {
+		t.Fatalf("Revert: %v", revErr)
+	}
+	if !r.active {
+		t.Error("expected Revert to leave fail2ban active when it was active before Apply")
+	}
+	if !r.enabled {
+		t.Error("expected Revert to leave fail2ban enabled when it was enabled before Apply")
 	}
 }
 
