@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -101,6 +102,23 @@ func TestPriorityWrapNiceAndIonice(t *testing.T) {
 	want := []string{"-c3", "/usr/bin/nice", "-n", "19", "/usr/sbin/lynis", "audit", "system"}
 	if !equalArgs(args, want) {
 		t.Errorf("args = %v, want %v", args, want)
+	}
+}
+
+func TestLynisNotFoundErrorHintIsPlatformNeutral(t *testing.T) {
+	trustedDirs := []string{"/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/local/sbin", "/usr/local/bin"}
+	got := lynisNotFoundError(trustedDirs)
+
+	if got.Err.Error() != "lynis not found" {
+		t.Errorf("Err = %q, want %q", got.Err.Error(), "lynis not found")
+	}
+	if strings.Contains(strings.ToLower(got.Hint), "apt") {
+		t.Errorf("Hint = %q, want no Debian-specific package manager mentioned", got.Hint)
+	}
+	for _, dir := range trustedDirs {
+		if !strings.Contains(got.Hint, dir) {
+			t.Errorf("Hint = %q, want it to mention trusted dir %q", got.Hint, dir)
+		}
 	}
 }
 

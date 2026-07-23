@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/Elysium-Labs-EU/themis/internal/binpath"
 	"github.com/Elysium-Labs-EU/themis/internal/ui"
@@ -71,10 +72,7 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 
 	lynisBin, err := binpath.Resolve("lynis")
 	if err != nil {
-		return nil, &ui.UserError{
-			Err:  errors.New("lynis not found"),
-			Hint: "apt install lynis (already installed but not in a trusted dir? check /usr/sbin, /sbin)",
-		}
+		return nil, lynisNotFoundError(binpath.TrustedDirs)
 	}
 
 	if runErr := runLynisAudit(ctx, lynisBin, opts); runErr != nil {
@@ -82,6 +80,18 @@ func Audit(ctx context.Context, opts Options) ([]Finding, error) {
 	}
 
 	return readReport(ReportPath)
+}
+
+// lynisNotFoundError builds the error returned when lynis can't be resolved
+// from trustedDirs. The hint names those dirs directly rather than
+// suggesting a specific package manager (e.g. apt), since themis runs on
+// Debian, Fedora, Alpine, and other distros whose install locations and
+// package managers all differ. Pure — no I/O.
+func lynisNotFoundError(trustedDirs []string) *ui.UserError {
+	return &ui.UserError{
+		Err:  errors.New("lynis not found"),
+		Hint: "install lynis with your distro's package manager and ensure it's on one of: " + strings.Join(trustedDirs, ", "),
+	}
 }
 
 // runLynisAudit runs `lynis audit system`, tolerating the non-zero exit
