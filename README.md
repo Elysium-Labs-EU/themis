@@ -39,6 +39,18 @@ go build -o themis
 
 Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for the audit.
 
+### OpenSCAP (optional)
+
+themis can additionally run [OpenSCAP](https://www.open-scap.org/) (`oscap xccdf eval`) against CIS/DISA benchmark content, e.g. the [SCAP Security Guide](https://github.com/ComplianceAsCode/content):
+
+```bash
+sudo apt install libopenscap8 scap-security-guide-debian
+sudo themis check --scap-content /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
+sudo themis check --scap-content /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml --scap-profile xccdf_org.ssgproject.content_profile_cis_level1_server
+```
+
+`--scap-content` is required to enable the OpenSCAP source; without it themis runs Lynis and its native checks only, unchanged from before. `--scap-profile` scopes the scan to one XCCDF profile (default: the datastream's own default profile). OpenSCAP rule IDs (`xccdf_org.ssgproject.content_rule_...`) are a separate namespace from Lynis test IDs, so they never collide in `fix.Registry`; findings surface for review even before a themis fix targets them.
+
 ### Release integrity
 
 `install.sh` and `themis system update` only download from `github.com` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
@@ -65,6 +77,7 @@ sudo themis rollback
 |---------|-------------|
 | `themis check` | Run an audit and list actionable findings |
 | `themis check --all` | Also show findings with no themis fix and no solution hint |
+| `themis check --scap-content <path>` | Also run OpenSCAP against the given SCAP/XCCDF datastream |
 | `themis plan` | Show which registered fixes would be applied |
 | `themis apply` | Apply all unsatisfied registered fixes and save rollback state |
 | `themis rollback` | Revert the fixes applied by the last `apply` |

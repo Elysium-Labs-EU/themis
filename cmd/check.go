@@ -9,20 +9,31 @@ import (
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
 	"github.com/Elysium-Labs-EU/themis/internal/lynis"
 	"github.com/Elysium-Labs-EU/themis/internal/native"
+	"github.com/Elysium-Labs-EU/themis/internal/openscap"
 	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 // sources lists every audit source themis runs when auditing the system
 // (themis check, themis api check). quick, when true, runs lynis with its
-// lighter --quick profile instead of a full audit.
-func sources(quick bool) []audit.Source {
-	return []audit.Source{lynis.NewSource(lynis.Options{Quick: quick}), native.NewSource()}
+// lighter --quick profile instead of a full audit. scapContent, when
+// non-empty, adds an OpenSCAP source evaluating that SCAP/XCCDF
+// datastream (optionally scoped to scapProfile); empty leaves OpenSCAP
+// out entirely, since — unlike lynis — it's not a themis dependency and
+// most hosts won't have SCAP content installed.
+func sources(quick bool, scapContent, scapProfile string) []audit.Source {
+	srcs := []audit.Source{lynis.NewSource(lynis.Options{Quick: quick}), native.NewSource()}
+	if scapContent != "" {
+		srcs = append(srcs, openscap.NewSource(openscap.Options{ContentPath: scapContent, Profile: scapProfile}))
+	}
+	return srcs
 }
 
 func newCheckCmd() *cobra.Command {
 	var showAll bool
 	var quick bool
+	var scapContent string
+	var scapProfile string
 
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -31,7 +42,7 @@ func newCheckCmd() *cobra.Command {
 			var findings []audit.Finding
 			err := ui.WithSpinner("Running audit...", func() error {
 				var err error
-				findings, err = audit.Run(cmd.Context(), sources(quick))
+				findings, err = audit.Run(cmd.Context(), sources(quick, scapContent, scapProfile))
 				return err
 			})
 			if err != nil {
@@ -49,6 +60,8 @@ func newCheckCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no source solution hint")
 	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
+	cmd.Flags().StringVar(&scapContent, "scap-content", "", "path to a SCAP/XCCDF datastream (e.g. oscap-ssg content); also runs OpenSCAP when set")
+	cmd.Flags().StringVar(&scapProfile, "scap-profile", "", "XCCDF profile ID to evaluate (default: the datastream's own default profile)")
 	return cmd
 }
 

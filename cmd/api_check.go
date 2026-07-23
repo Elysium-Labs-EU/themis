@@ -70,7 +70,9 @@ Exit codes:
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		quick, _ := cmd.Flags().GetBool("quick")
-		findings, err := audit.Run(cmd.Context(), sources(quick))
+		scapContent, _ := cmd.Flags().GetString("scap-content")
+		scapProfile, _ := cmd.Flags().GetString("scap-profile")
+		findings, err := audit.Run(cmd.Context(), sources(quick, scapContent, scapProfile))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}
