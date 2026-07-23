@@ -15,10 +15,29 @@ func TestDirectiveValue(t *testing.T) {
 	}
 }
 
-func TestDirectiveValueLastWins(t *testing.T) {
+// TestDirectiveValueFirstWins reproduces F-023: OpenSSH's sshd uses the
+// first occurrence of a global directive and ignores later duplicates, so
+// DirectiveValue must return "yes" here, not the last line's "no" — the
+// real running sshd is still wide open despite the later, ineffective
+// line.
+func TestDirectiveValueFirstWins(t *testing.T) {
 	content := "PermitRootLogin yes\nPermitRootLogin no\n"
-	if got := DirectiveValue(content, "PermitRootLogin"); got != "no" {
-		t.Errorf("got %q, want %q", got, "no")
+	if got := DirectiveValue(content, "PermitRootLogin"); got != "yes" {
+		t.Errorf("got %q, want %q (sshd_config is first-match-wins)", got, "yes")
+	}
+}
+
+// TestDirectiveValueFirstWinsAcrossMultipleMatchBlocks reproduces F-023
+// against a config with several Match blocks, each repeating the
+// directive: only the global section (before the first Match line)
+// matters, and within it the first occurrence — not the last, and not
+// anything inside a Match block — is authoritative.
+func TestDirectiveValueFirstWinsAcrossMultipleMatchBlocks(t *testing.T) {
+	content := "PermitRootLogin yes\nPermitRootLogin no\n" +
+		"Match User admin\n    PermitRootLogin yes\n" +
+		"Match Address 10.0.0.0/8\n    PermitRootLogin no\n"
+	if got := DirectiveValue(content, "PermitRootLogin"); got != "yes" {
+		t.Errorf("got %q, want %q (first global occurrence, ignoring all Match blocks)", got, "yes")
 	}
 }
 

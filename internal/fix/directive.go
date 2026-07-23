@@ -59,8 +59,15 @@ func setDirective(content, key, value string) string {
 	return strings.Join(out, "\n")
 }
 
-// DirectiveValue returns the last effective (uncommented) value for key
+// DirectiveValue returns the first effective (uncommented) value for key
 // within the top-level/global scope, or "" if it is never set there.
+// This mirrors OpenSSH's actual sshd_config parsing: sshd uses the first
+// occurrence of a keyword and ignores every later duplicate, so a
+// repeated global directive does not override its predecessor. Reporting
+// the last occurrence instead would produce a false "satisfied" verdict
+// whenever an earlier, still-effective line is the insecure one — the
+// real running sshd obeys the first line, not the last.
+//
 // Lines at or after the first top-level `Match` line are ignored: a
 // Match block only redefines a directive for the connections it
 // matches, so a value set there does not reflect the general-case
@@ -75,14 +82,13 @@ func DirectiveValue(content, key string) string {
 		globalEnd = idx
 	}
 
-	value := ""
 	for _, line := range lines[:globalEnd] {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) >= 2 && strings.EqualFold(fields[0], key) {
-			value = fields[1]
+			return fields[1]
 		}
 	}
-	return value
+	return ""
 }
 
 // firstMatchLineIndex returns the index of the first uncommented,

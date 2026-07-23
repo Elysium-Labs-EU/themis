@@ -233,6 +233,95 @@ func TestAuthorizedKeysExist(t *testing.T) {
 			t.Fatal("expected true when a home has a non-empty authorized_keys")
 		}
 	})
+
+	// F-016: a comment-only file has non-empty TrimSpace'd content but no
+	// actual key — the old len(TrimSpace(...))>0 check would have wrongly
+	// reported this as usable.
+	t.Run("authorized_keys file has only comments", func(t *testing.T) {
+		home := t.TempDir()
+		sshDir := filepath.Join(home, ".ssh")
+		if err := os.MkdirAll(sshDir, 0o700); err != nil {
+			t.Fatalf("mkdir .ssh: %v", err)
+		}
+		content := "# managed by ansible\n# do not edit by hand\n"
+		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+			t.Fatalf("writing comment-only authorized_keys: %v", err)
+		}
+		ok, err := authorizedKeysExist([]string{home})
+		if err != nil {
+			t.Fatalf("authorizedKeysExist: %v", err)
+		}
+		if ok {
+			t.Fatal("expected false for a comment-only authorized_keys file")
+		}
+	})
+
+	// F-016: a forced-command-restricted key can't give a locked-out
+	// operator an interactive shell, so it must not count as usable.
+	t.Run("only key present is restricted with a forced command", func(t *testing.T) {
+		home := t.TempDir()
+		sshDir := filepath.Join(home, ".ssh")
+		if err := os.MkdirAll(sshDir, 0o700); err != nil {
+			t.Fatalf("mkdir .ssh: %v", err)
+		}
+		content := `no-port-forwarding,no-agent-forwarding,no-pty,command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n"
+		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+			t.Fatalf("writing restricted authorized_keys: %v", err)
+		}
+		ok, err := authorizedKeysExist([]string{home})
+		if err != nil {
+			t.Fatalf("authorizedKeysExist: %v", err)
+		}
+		if ok {
+			t.Fatal("expected false when the only key is command-restricted")
+		}
+	})
+
+	// F-016: a restricted key alongside a genuinely usable one must still
+	// report true — only the usable key matters.
+	t.Run("restricted key alongside a usable key", func(t *testing.T) {
+		home := t.TempDir()
+		sshDir := filepath.Join(home, ".ssh")
+		if err := os.MkdirAll(sshDir, 0o700); err != nil {
+			t.Fatalf("mkdir .ssh: %v", err)
+		}
+		content := `command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n" +
+			"ssh-ed25519 BBBB... admin@host\n"
+		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+			t.Fatalf("writing mixed authorized_keys: %v", err)
+		}
+		ok, err := authorizedKeysExist([]string{home})
+		if err != nil {
+			t.Fatalf("authorizedKeysExist: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected true when an unrestricted key is present alongside a restricted one")
+		}
+	})
+}
+
+func TestHasUsableAuthorizedKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"empty", "", false},
+		{"blank lines only", "   \n\n", false},
+		{"comments only", "# comment\n#ssh-ed25519 AAAA...\n", false},
+		{"unrestricted rsa key", "ssh-rsa AAAA... user@host\n", true},
+		{"unrestricted ed25519 key", "ssh-ed25519 AAAA... user@host\n", true},
+		{"forced command restriction", `command="/bin/true" ssh-ed25519 AAAA... user@host` + "\n", false},
+		{"no-pty restriction", `no-pty,no-port-forwarding ssh-rsa AAAA... user@host` + "\n", false},
+		{"restricted then unrestricted", "restrict,command=\"/bin/true\" ssh-rsa AAAA... a@host\nssh-rsa BBBB... b@host\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasUsableAuthorizedKey(tc.content); got != tc.want {
+				t.Errorf("hasUsableAuthorizedKey(%q) = %v, want %v", tc.content, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestHomeDirectoriesFrom(t *testing.T) {
@@ -331,4 +420,183 @@ func TestSSHPasswordAuthFixWithPropagatesHomeDirsError(t *testing.T) {
 	if _, err := f.Apply(); !errors.Is(err, boom) {
 		t.Fatalf("expected Apply to propagate homeDirs error, got %v", err)
 	}
+}
+
+// F-011: sshPermitRootLoginFix gets the same kind of anti-lockout guard
+// sshPasswordAuthFix already had. These mirror the PASSWDAUTH tests above
+// for the single-fix (PasswordAuthentication still permissive) case.
+
+func TestSSHPermitRootLoginFixWithRefusesWithoutAnyAuthorizedKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("Port 22\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	noHomes := func() ([]string, error) { return []string{t.TempDir()}, nil }
+	f := sshPermitRootLoginFixWith(path, func() error { return nil }, noHomes)
+
+	if _, err := f.Apply(); err == nil {
+		t.Fatal("expected Apply to refuse when no authorized_keys exist anywhere")
+	}
+
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if satisfied {
+		t.Fatal("expected sshd_config to be untouched after refused Apply")
+	}
+}
+
+func TestSSHPermitRootLoginFixWithAppliesWhenAuthorizedKeysPresent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("Port 22\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("ssh-ed25519 AAAA... user@host\n"), 0o600); err != nil {
+		t.Fatalf("writing authorized_keys: %v", err)
+	}
+	withHome := func() ([]string, error) { return []string{home}, nil }
+	f := sshPermitRootLoginFixWith(path, func() error { return nil }, withHome)
+
+	if _, err := f.Apply(); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !satisfied {
+		t.Fatal("expected sshd_config to be updated after Apply")
+	}
+}
+
+func TestSSHPermitRootLoginFixWithPropagatesHomeDirsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("Port 22\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	boom := errors.New("boom")
+	failingHomes := func() ([]string, error) { return nil, boom }
+	f := sshPermitRootLoginFixWith(path, func() error { return nil }, failingHomes)
+
+	if _, err := f.Apply(); !errors.Is(err, boom) {
+		t.Fatalf("expected Apply to propagate homeDirs error, got %v", err)
+	}
+}
+
+// F-015: ROOTLOGIN and PASSWDAUTH combined-lockout scenarios. A
+// "root-only-key" host — root has a usable key, no non-root account
+// does — must not end up with BOTH directives disabled, regardless of
+// which fix runs (or was already applied) first.
+
+func TestSSHPermitRootLoginFixWithRefusesRootOnlyKeyWhenPasswordAuthAlreadyDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	// PasswordAuthentication is already off — as it would be after
+	// PASSWDAUTH ran first in the same apply pass, or in an earlier run.
+	if err := os.WriteFile(path, []byte("PasswordAuthentication no\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	// homeDirs mimics systemHomeDirectories: root's home is always
+	// present. It's never stat'd here since nonRootAuthorizedKeysExist
+	// filters it out before any I/O, so this stays hermetic even though
+	// "/root" isn't a real, writable directory in the test environment.
+	rootOnly := func() ([]string, error) { return []string{"/root"}, nil }
+	f := sshPermitRootLoginFixWith(path, func() error { return nil }, rootOnly)
+
+	if _, err := f.Apply(); err == nil {
+		t.Fatal("expected Apply to refuse: disabling root login too would leave no way in")
+	}
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if satisfied {
+		t.Fatal("expected sshd_config to be untouched after refused Apply")
+	}
+}
+
+func TestSSHPasswordAuthFixWithRefusesRootOnlyKeyWhenRootLoginAlreadyDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	// PermitRootLogin is already off — as it would be after ROOTLOGIN ran
+	// first in the same apply pass, or in an earlier run.
+	if err := os.WriteFile(path, []byte("PermitRootLogin no\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	rootOnly := func() ([]string, error) { return []string{"/root"}, nil }
+	f := sshPasswordAuthFixWith(path, func() error { return nil }, rootOnly)
+
+	if _, err := f.Apply(); err == nil {
+		t.Fatal("expected Apply to refuse: disabling password auth too would leave no way in")
+	}
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if satisfied {
+		t.Fatal("expected sshd_config to be untouched after refused Apply")
+	}
+}
+
+func TestSSHPermitRootLoginFixWithAppliesWhenNonRootKeyPresentAndPasswordAuthAlreadyDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("PasswordAuthentication no\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	nonRootHome := t.TempDir()
+	sshDir := filepath.Join(nonRootHome, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("ssh-ed25519 AAAA... admin@host\n"), 0o600); err != nil {
+		t.Fatalf("writing authorized_keys: %v", err)
+	}
+	homes := func() ([]string, error) { return []string{"/root", nonRootHome}, nil }
+	f := sshPermitRootLoginFixWith(path, func() error { return nil }, homes)
+
+	if _, err := f.Apply(); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !satisfied {
+		t.Fatal("expected sshd_config to be updated after Apply: a non-root account still has a usable key")
+	}
+}
+
+func TestSSHAuthorizedKeysGuard(t *testing.T) {
+	t.Run("other directive permissive: root's own key is enough", func(t *testing.T) {
+		home := t.TempDir()
+		sshDir := filepath.Join(home, ".ssh")
+		if err := os.MkdirAll(sshDir, 0o700); err != nil {
+			t.Fatalf("mkdir .ssh: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("ssh-ed25519 AAAA... root@host\n"), 0o600); err != nil {
+			t.Fatalf("writing authorized_keys: %v", err)
+		}
+		ok, err := sshAuthorizedKeysGuard("PasswordAuthentication yes\n", []string{home}, "PasswordAuthentication")
+		if err != nil {
+			t.Fatalf("sshAuthorizedKeysGuard: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected true: the other directive is still permissive, so any home's key is an adequate fallback")
+		}
+	})
+
+	t.Run("other directive already no: requires a non-root key", func(t *testing.T) {
+		ok, err := sshAuthorizedKeysGuard("PasswordAuthentication no\n", []string{"/root"}, "PasswordAuthentication")
+		if err != nil {
+			t.Fatalf("sshAuthorizedKeysGuard: %v", err)
+		}
+		if ok {
+			t.Fatal("expected false: only root's home is present and it's excluded once the other directive is no")
+		}
+	})
 }
