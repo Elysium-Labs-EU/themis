@@ -332,3 +332,63 @@ func TestSSHPasswordAuthFixWithPropagatesHomeDirsError(t *testing.T) {
 		t.Fatalf("expected Apply to propagate homeDirs error, got %v", err)
 	}
 }
+
+// TestSSHUnitNameFedora reproduces issue #12: on Fedora/RHEL/CentOS,
+// `systemctl list-unit-files --type=service` lists "sshd.service" and has
+// no "ssh.service" entry at all, so the resolved unit must be "sshd".
+func TestSSHUnitNameFedora(t *testing.T) {
+	out := "UNIT FILE                 STATE\nsshd.service              enabled\n\n1 unit files listed.\n"
+	if got := sshUnitName(out); got != "sshd" {
+		t.Fatalf("expected %q, got %q", "sshd", got)
+	}
+}
+
+// TestSSHUnitNameDebian covers the Debian/Ubuntu case: only "ssh.service"
+// is listed, no "sshd.service" alias exists, so the resolved unit must
+// fall back to "ssh".
+func TestSSHUnitNameDebian(t *testing.T) {
+	out := "UNIT FILE                 STATE\nssh.service               enabled\n\n1 unit files listed.\n"
+	if got := sshUnitName(out); got != "ssh" {
+		t.Fatalf("expected %q, got %q", "ssh", got)
+	}
+}
+
+// TestSSHUnitNameEmptyFallsBackToSSH covers the outRun-failed/empty-output
+// case (e.g. systemctl itself errored) — reloadSSHDWith ignores that error
+// and sshUnitName must still return a usable default rather than panic or
+// an empty string.
+func TestSSHUnitNameEmptyFallsBackToSSH(t *testing.T) {
+	if got := sshUnitName(""); got != "ssh" {
+		t.Fatalf("expected %q, got %q", "ssh", got)
+	}
+}
+
+// TestReloadSSHDWithUsesResolvedUnitName reproduces issue #12's repro end
+// to end at the reload seam: given Fedora-shaped `list-unit-files` output,
+// reloadSSHDWith must invoke `systemctl reload sshd`, not the hardcoded
+// `systemctl reload ssh` that fails with "Unit ssh.service not found" on
+// every RHEL-family system.
+func TestReloadSSHDWithUsesResolvedUnitName(t *testing.T) {
+	fakeOutRun := func(name string, args ...string) (string, error) {
+		if name != "systemctl" || len(args) == 0 || args[0] != "list-unit-files" {
+			t.Fatalf("unexpected outRun call: %s %v", name, args)
+		}
+		return "UNIT FILE                 STATE\nsshd.service              enabled\n", nil
+	}
+	var reloadedArgs []string
+	fakeRun := func(name string, args ...string) error {
+		if name != "systemctl" {
+			t.Fatalf("unexpected run command: %s", name)
+		}
+		reloadedArgs = args
+		return nil
+	}
+
+	if err := reloadSSHDWith(fakeOutRun, fakeRun); err != nil {
+		t.Fatalf("reloadSSHDWith: %v", err)
+	}
+	want := []string{"reload", "sshd"}
+	if len(reloadedArgs) != len(want) || reloadedArgs[0] != want[0] || reloadedArgs[1] != want[1] {
+		t.Fatalf("expected systemctl %v, got systemctl %v", want, reloadedArgs)
+	}
+}

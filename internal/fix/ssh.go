@@ -92,7 +92,33 @@ func homeDirectoriesFrom(passwdPath string) ([]string, error) {
 }
 
 func reloadSSHD() error {
-	return runCmd("systemctl", "reload", "ssh")
+	return reloadSSHDWith(runCmdOutput, runCmd)
+}
+
+// reloadSSHDWith reloads the SSH daemon, resolving the systemd unit name
+// per-distro rather than hardcoding one: Fedora/RHEL/CentOS ship the unit
+// as "sshd.service" only, while Debian/Ubuntu ship it as "ssh.service"
+// (with no "sshd.service" alias). Hardcoding "ssh" made both SSH fixes
+// unconditionally fail their reload step on every RHEL-family system
+// (issue #12). outRun and run are parameterized so this is unit-testable
+// against a fake systemctl instead of the real one.
+func reloadSSHDWith(outRun outputRunner, run cmdRunner) error {
+	out, _ := outRun("systemctl", "list-unit-files", "--type=service")
+	return run("systemctl", "reload", sshUnitName(out))
+}
+
+// sshUnitName picks the systemd unit name for the SSH daemon from
+// `systemctl list-unit-files --type=service` output: "sshd" if a
+// "sshd.service" entry is listed (Fedora/RHEL/CentOS), otherwise "ssh"
+// (Debian/Ubuntu, where sshd.service doesn't exist). Pure — no I/O.
+func sshUnitName(listUnitFilesOutput string) string {
+	for line := range strings.SplitSeq(listUnitFilesOutput, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "sshd.service" {
+			return "sshd"
+		}
+	}
+	return "ssh"
 }
 
 // sshDisableDirectiveFixAt builds a Fix that sets key to "no" in the
