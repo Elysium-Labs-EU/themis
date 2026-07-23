@@ -37,5 +37,7 @@ var apiCmd = &cobra.Command{
 
 func init() {
 	apiCheckCmd.Flags().Bool("quick", false, "run lynis's lighter --quick profile instead of a full audit")
+	apiCheckCmd.Flags().String("scap-content", "", "path to a SCAP/XCCDF datastream (e.g. oscap-ssg content); also runs OpenSCAP when set")
+	apiCheckCmd.Flags().String("scap-profile", "", "XCCDF profile ID to evaluate (default: the datastream's own default profile)")
 	apiCmd.AddCommand(apiCheckCmd)
 }
