@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -133,7 +134,7 @@ func runInteractiveCompletion(cmd *cobra.Command, root *cobra.Command) error {
 
 	cmd.Printf("\n  %s %s\n\n", ui.TextMuted.Render("Detected shell:"), ui.TextBold.Render(shell))
 
-	confirmed := ui.Confirm(cmd.InOrStdin(), cmd.OutOrStdout(), fmt.Sprintf("Install tab completion for %s?", shell), false)
+	confirmed := ui.Confirm(bufio.NewReader(cmd.InOrStdin()), cmd.OutOrStdout(), fmt.Sprintf("Install tab completion for %s?", shell), false)
 	if !confirmed {
 		cmd.Printf("\n  %s\n\n", ui.TextMuted.Render("Skipped. Run 'themis completion "+shell+"' to print the script manually."))
 		return nil

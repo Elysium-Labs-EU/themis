@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +16,11 @@ import (
 // can be exercised in tests without touching the real installed binary or
 // os.Executable() (which, under `go test`, is the test binary itself).
 func runUninstall(in io.Reader, out io.Writer, exePath, stateDir string, yes, purge bool) error {
-	if !yes && !ui.Confirm(in, out, fmt.Sprintf("Remove themis (%s)?", exePath), false) {
+	// Shared across both prompts: a fresh bufio.Reader per Confirm call would
+	// discard input already buffered for the second prompt (issue #26).
+	reader := bufio.NewReader(in)
+
+	if !yes && !ui.Confirm(reader, out, fmt.Sprintf("Remove themis (%s)?", exePath), false) {
 		_, _ = fmt.Fprintln(out, "Canceled.")
 		return nil
 	}
@@ -31,7 +36,7 @@ func runUninstall(in io.Reader, out io.Writer, exePath, stateDir string, yes, pu
 
 	removeState := purge
 	if !removeState && !yes {
-		removeState = ui.Confirm(in, out, fmt.Sprintf("Also remove themis state data (%s)?", stateDir), false)
+		removeState = ui.Confirm(reader, out, fmt.Sprintf("Also remove themis state data (%s)?", stateDir), false)
 	}
 
 	if removeState {

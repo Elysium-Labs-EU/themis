@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"bytes"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func TestConfirm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := strings.NewReader(tt.input)
+			in := bufio.NewReader(strings.NewReader(tt.input))
 			out := &bytes.Buffer{}
 			got := Confirm(in, out, "proceed?", tt.defaultYes)
 			if got != tt.want {
@@ -33,5 +34,22 @@ func TestConfirm(t *testing.T) {
 				t.Error("expected a prompt to be written to out")
 			}
 		})
+	}
+}
+
+// TestConfirmSharedReaderAnswersBothPrompts is a regression test for issue
+// #26: two Confirm calls sharing one *bufio.Reader over piped input
+// ("y\ny\n") must both see their answer. Before the fix, Confirm wrapped a
+// fresh bufio.Reader per call, so the first call's read-ahead silently
+// swallowed the second answer.
+func TestConfirmSharedReaderAnswersBothPrompts(t *testing.T) {
+	in := bufio.NewReader(strings.NewReader("y\ny\n"))
+	out := &bytes.Buffer{}
+
+	first := Confirm(in, out, "remove binary?", false)
+	second := Confirm(in, out, "remove state?", false)
+
+	if !first || !second {
+		t.Errorf("Confirm sequence = (%v, %v), want (true, true)", first, second)
 	}
 }

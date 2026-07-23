@@ -77,6 +77,27 @@ func TestRunUninstallPurgeRemovesState(t *testing.T) {
 	}
 }
 
+func TestRunUninstallPipedYesYesRemovesBinaryAndState(t *testing.T) {
+	dir := t.TempDir()
+	exePath := writeFakeBinary(t, dir)
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	if err := runUninstall(strings.NewReader("y\ny\n"), buf, exePath, stateDir, false, false); err != nil {
+		t.Fatalf("runUninstall: %v", err)
+	}
+
+	if _, err := os.Stat(exePath); !os.IsNotExist(err) {
+		t.Errorf("expected binary to be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Errorf("expected state dir to be removed when both piped answers are \"y\", stat err: %v", err)
+	}
+}
+
 func TestRunUninstallMissingBinaryIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	exePath := filepath.Join(dir, "already-gone")
