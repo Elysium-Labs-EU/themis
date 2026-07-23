@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/lynis"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +86,9 @@ Exit codes:
 		quick, _ := cmd.Flags().GetBool("quick")
 		scapContent, _ := cmd.Flags().GetString("scap-content")
 		scapProfile, _ := cmd.Flags().GetString("scap-profile")
-		findings, err := audit.Run(cmd.Context(), sources(quick, scapContent, scapProfile))
+		skipUnchanged, _ := cmd.Flags().GetBool("skip-unchanged")
+		lynisOpts := lynis.Options{Quick: quick, SkipIfUnchanged: skipUnchanged}
+		findings, err := audit.Run(cmd.Context(), sources(lynisOpts, scapContent, scapProfile))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}

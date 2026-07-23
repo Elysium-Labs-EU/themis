@@ -16,17 +16,15 @@ import (
 )
 
 // sources lists every audit source themis runs when auditing the system
-// (themis check, themis api check). quick, when true, runs lynis with its
-// lighter --quick profile instead of a full audit. osquery.NewSource is
-// always included: it no-ops (no findings, no error) on a host with no
-// prior `themis apply` state or no osqueryi binary installed, so it's safe
-// to run unconditionally. scapContent, when non-empty, adds an OpenSCAP
-// source evaluating that SCAP/XCCDF datastream (optionally scoped to
-// scapProfile); empty leaves OpenSCAP out entirely, since — unlike lynis —
-// it's not a themis dependency and most hosts won't have SCAP content
-// installed.
-func sources(quick bool, scapContent, scapProfile string) []audit.Source {
-	srcs := []audit.Source{lynis.NewSource(lynis.Options{Quick: quick}), native.NewSource(), osquery.NewSource("")}
+// (themis check, themis api check). osquery.NewSource is always included:
+// it no-ops (no findings, no error) on a host with no prior `themis apply`
+// state or no osqueryi binary installed, so it's safe to run
+// unconditionally. scapContent, when non-empty, adds an OpenSCAP source
+// evaluating that SCAP/XCCDF datastream (optionally scoped to scapProfile);
+// empty leaves OpenSCAP out entirely, since — unlike lynis — it's not a
+// themis dependency and most hosts won't have SCAP content installed.
+func sources(lynisOpts lynis.Options, scapContent, scapProfile string) []audit.Source {
+	srcs := []audit.Source{lynis.NewSource(lynisOpts), native.NewSource(), osquery.NewSource("")}
 	if scapContent != "" {
 		srcs = append(srcs, openscap.NewSource(openscap.Options{ContentPath: scapContent, Profile: scapProfile}))
 	}
@@ -38,6 +36,7 @@ func newCheckCmd() *cobra.Command {
 	var quick bool
 	var scapContent string
 	var scapProfile string
+	var skipUnchanged bool
 
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -46,7 +45,8 @@ func newCheckCmd() *cobra.Command {
 			var findings []audit.Finding
 			err := ui.WithSpinner("Running audit...", func() error {
 				var err error
-				findings, err = audit.Run(cmd.Context(), sources(quick, scapContent, scapProfile))
+				lynisOpts := lynis.Options{Quick: quick, SkipIfUnchanged: skipUnchanged}
+				findings, err = audit.Run(cmd.Context(), sources(lynisOpts, scapContent, scapProfile))
 				return err
 			})
 			if err != nil {
@@ -66,6 +66,7 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
 	cmd.Flags().StringVar(&scapContent, "scap-content", "", "path to a SCAP/XCCDF datastream (e.g. oscap-ssg content); also runs OpenSCAP when set")
 	cmd.Flags().StringVar(&scapProfile, "scap-profile", "", "XCCDF profile ID to evaluate (default: the datastream's own default profile)")
+	cmd.Flags().BoolVar(&skipUnchanged, "skip-unchanged", false, "skip the lynis scan and reuse the last report if nothing lynis cares about (config files, package list) has changed since")
 	return cmd
 }
 
