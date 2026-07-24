@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  merge_group:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
+
+  integration-test:
+    name: Integration Test (root)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      # lynis powers the B3 audit test; if this runner can't reach the apt
+      # mirror the install is best-effort and the test self-skips (t.Skip on
+      # missing lynis) rather than failing the job.
+      - name: Install lynis (best-effort)
+        continue-on-error: true
+        run: |
+          apt-get update
+          apt-get install -y lynis
+
+      # The act-latest image runs as root, so the euid==0 gate in the B3
+      # (lynis) and B2 (self-update) tests runs for real. THEMIS_INTEGRATION_MUTATE
+      # stays unset: the host-mutating B1 fix apply/revert tests self-skip here
+      # (they install packages + enable services, unsupported in this
+      # container) and instead run for real on OrbStack via
+      # `make test-integration-orb`.
+      - name: Run integration tests
+        run: go test ./... -tags integration -v -count=1
+
+  crap:
+    name: CRAP Score
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install go-crap
+        run: go install github.com/padiazg/go-crap@latest
+
+      # pull_request exposes the base branch as a bare name (github.base_ref);
+      # merge_group exposes it as a full ref (refs/heads/<branch>).
+      - name: Determine CRAP base ref
+        id: crapbase
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            base="${{ github.event.merge_group.base_ref }}"
+            base="${base#refs/heads/}"
+          else
+            base="main"
+          fi
+          echo "ref=origin/${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Run change-scoped CRAP gate
+        run: make crap
+        env:
+          GO_CRAP_BASE: ${{ steps.crapbase.outputs.ref }}
+
+  verify-build:
+    name: Verify Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify code compiles
+        run: go build -v ./...
