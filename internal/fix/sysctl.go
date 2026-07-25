@@ -54,6 +54,7 @@ func sysctlHardeningFix() Fix {
 // sysctl.
 func sysctlFixAt(path string, outRun outputRunner, run cmdRunner, reload func() error) Fix {
 	desired := buildSysctlDropIn()
+	desiredKV := sysctlDesiredKV()
 	keys := sysctlKeys()
 	return Fix{
 		TestID:      "KRNL-6000",
@@ -63,7 +64,19 @@ func sysctlFixAt(path string, outRun outputRunner, run cmdRunner, reload func() 
 			if err != nil {
 				return false, err
 			}
-			return existed && string(content) == desired, nil
+			if !existed || string(content) != desired {
+				return false, nil
+			}
+			for _, kv := range desiredKV {
+				got, outErr := outRun("sysctl", "-n", kv.Key)
+				if outErr != nil {
+					return false, nil //nolint:nilerr // unreadable live value means the check is simply unsatisfied
+				}
+				if strings.TrimSpace(got) != kv.Value {
+					return false, nil
+				}
+			}
+			return true, nil
 		},
 		Apply: func() ([]byte, error) {
 			content, existed, readErr := ReadFileOrEmpty(path)
@@ -126,14 +139,26 @@ func buildSysctlDropIn() string {
 	return b.String()
 }
 
-// sysctlKeys returns the bare parameter names (e.g. "net.ipv4.tcp_syncookies")
-// this fix touches, parsed from sysctlHardeningSettings. Pure — no I/O.
-func sysctlKeys() []string {
-	keys := make([]string, 0, len(sysctlHardeningSettings))
+// sysctlDesiredKV parses sysctlHardeningSettings into key/value pairs, the
+// live values Check compares against so drift at the kernel level (not just
+// the drop-in file) is caught. Pure — no I/O.
+func sysctlDesiredKV() []sysctlKV {
+	kvs := make([]sysctlKV, 0, len(sysctlHardeningSettings))
 	for _, line := range sysctlHardeningSettings {
-		if key, _, ok := strings.Cut(line, " = "); ok {
-			keys = append(keys, key)
+		if key, val, ok := strings.Cut(line, " = "); ok {
+			kvs = append(kvs, sysctlKV{Key: key, Value: val})
 		}
+	}
+	return kvs
+}
+
+// sysctlKeys returns the bare parameter names (e.g. "net.ipv4.tcp_syncookies")
+// this fix touches. Pure — no I/O.
+func sysctlKeys() []string {
+	kvs := sysctlDesiredKV()
+	keys := make([]string, 0, len(kvs))
+	for _, kv := range kvs {
+		keys = append(keys, kv.Key)
 	}
 	return keys
 }
