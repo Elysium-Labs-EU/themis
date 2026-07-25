@@ -12,7 +12,9 @@ type Source struct {
 }
 
 // NewSource returns a Lynis audit.Source. opts.Quick controls whether the
-// scan uses lynis's lighter --quick profile or a full audit (default).
+// scan uses lynis's lighter --quick profile or a full audit (default);
+// opts.SkipIfUnchanged controls whether an unchanged host skips the scan
+// and reuses the last report.
 func NewSource(opts Options) Source { return Source{opts: opts} }
 
 // Name identifies this source as "lynis".
