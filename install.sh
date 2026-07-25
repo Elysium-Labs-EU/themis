@@ -376,7 +376,6 @@ main() {
         step "Downloading ${BINARY_NAME} ${version} for linux-${arch}..."
 
         local download_url="${GITHUB_URL}/${REPO}/releases/download/${version}/themis-linux-${arch}"
-        local tmp_dir
         tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/themis-install.XXXXXXXX")" || { error "Failed to create secure temp dir"; exit 1; }
         trap 'rm -rf "$tmp_dir"' EXIT
         tmp_binary="${tmp_dir}/${BINARY_NAME}"
