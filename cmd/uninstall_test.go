@@ -77,6 +77,31 @@ func TestRunUninstallPurgeRemovesState(t *testing.T) {
 	}
 }
 
+// TestRunUninstallBothPromptsAnsweredTogether reproduces issue #26: both
+// prompts must read from the same shared bufio.Reader so that piped
+// "y\ny\n" answers both the binary-removal and state-removal confirmations,
+// instead of the second call silently seeing EOF and defaulting to no.
+func TestRunUninstallBothPromptsAnsweredTogether(t *testing.T) {
+	dir := t.TempDir()
+	exePath := writeFakeBinary(t, dir)
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	if err := runUninstall(strings.NewReader("y\ny\n"), buf, exePath, stateDir, false, false); err != nil {
+		t.Fatalf("runUninstall: %v", err)
+	}
+
+	if _, err := os.Stat(exePath); !os.IsNotExist(err) {
+		t.Errorf("expected binary to be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Errorf("expected state dir to be removed when both prompts answered y, stat err: %v", err)
+	}
+}
+
 func TestRunUninstallMissingBinaryIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	exePath := filepath.Join(dir, "already-gone")
