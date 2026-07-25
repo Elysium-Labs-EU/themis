@@ -126,7 +126,7 @@ func runRollbackOne(cmd *cobra.Command, statePath, testID string, force bool) er
 func revertEntry(cmd *cobra.Command, entry state.Entry, force bool) (reverted bool, err error) {
 	f, ok := fix.Registry[entry.TestID]
 	if !ok {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — no longer registered\n", ui.LabelWarning.Render("[skip]    "), ui.TextBold.Render(entry.TestID))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — no longer registered\n", ui.FixLabel("[skip]", ui.StatusWarned), ui.TextBold.Render(entry.TestID))
 		return true, nil
 	}
 	if f.RevertWarn != nil {
@@ -135,7 +135,7 @@ func revertEntry(cmd *cobra.Command, entry state.Entry, force bool) (reverted bo
 			return false, fmt.Errorf("checking %s for drift before revert: %w", entry.TestID, warnErr)
 		}
 		if detected && !force {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelWarning.Render("[warn]    "), ui.TextBold.Render(entry.TestID), msg)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[warn]", ui.StatusWarned), ui.TextBold.Render(entry.TestID), msg)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "            %s\n", ui.TextMuted.Render("skipped — review and rerun rollback with --force to revert anyway"))
 			return false, nil
 		}
@@ -143,7 +143,7 @@ func revertEntry(cmd *cobra.Command, entry state.Entry, force bool) (reverted bo
 	if err := f.Revert(entry.RevertData); err != nil {
 		return false, fmt.Errorf("reverting %s: %w", entry.TestID, err)
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", ui.LabelSuccess.Render("[reverted]"), ui.TextBold.Render(entry.TestID))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", ui.FixLabel("[reverted]", ui.StatusChanged), ui.TextBold.Render(entry.TestID))
 	return true, nil
 }
 
