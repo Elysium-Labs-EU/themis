@@ -54,6 +54,9 @@ func sysctlFixAt(path string, reload func() error) Fix {
 			}
 			return original, nil
 		},
+		RevertWarn: func([]byte) (string, bool, error) {
+			return driftWarning(path, desired)
+		},
 		Revert: func(original []byte) error {
 			if original == nil {
 				if err := removeFile(path); err != nil {

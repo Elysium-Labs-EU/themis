@@ -269,6 +269,9 @@ func sshDisableDirectiveFixAt(testID, description, path string, reload func() er
 			}
 			return original, nil
 		},
+		RevertWarn: func(original []byte) (string, bool, error) {
+			return driftWarning(path, setDirective(string(original), key, value))
+		},
 		Revert: func(original []byte) error {
 			if err := writeFile(path, original, 0o600); err != nil {
 				return err

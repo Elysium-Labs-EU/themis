@@ -26,6 +26,7 @@ func autoUpdatesFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix
 		Description: "enable unattended-upgrades for automatic security updates",
 		Check:       func() (bool, error) { return autoUpdatesCheck(path, pkgInstalled) },
 		Apply:       func() ([]byte, error) { return autoUpdatesApply(path, run, pkgInstalled) },
+		RevertWarn:  func(data []byte) (string, bool, error) { return autoUpdatesRevertWarn(data, path) },
 		Revert:      func(data []byte) error { return autoUpdatesRevert(data, path, run) },
 	}
 }
@@ -59,8 +60,7 @@ func autoUpdatesApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]by
 	if err != nil {
 		return nil, err
 	}
-	updated := setDirective(string(original), "APT::Periodic::Unattended-Upgrade", `"1";`)
-	updated = setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
+	updated := buildAutoUpdatesConfig(string(original))
 	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
 		return nil, writeErr
 	}
@@ -70,6 +70,25 @@ func autoUpdatesApply(path string, run cmdRunner, pkgInstalled pkgChecker) ([]by
 		return nil, fmt.Errorf("marshaling auto-updates revert state: %w", err)
 	}
 	return data, nil
+}
+
+// buildAutoUpdatesConfig renders the periodic directives onto original,
+// exactly as autoUpdatesApply writes them. Pure — no I/O — so RevertWarn
+// can recompute the content Apply wrote without re-reading the file.
+func buildAutoUpdatesConfig(original string) string {
+	updated := setDirective(original, "APT::Periodic::Unattended-Upgrade", `"1";`)
+	return setDirective(updated, "APT::Periodic::Update-Package-Lists", `"1";`)
+}
+
+// autoUpdatesRevertWarn reports whether the config at path has changed
+// since Apply wrote it, by recomputing the exact content Apply produced
+// from PrevConfig and comparing it to what's on disk now.
+func autoUpdatesRevertWarn(data []byte, path string) (string, bool, error) {
+	var state autoUpdatesState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", false, fmt.Errorf("unmarshaling auto-updates revert state: %w", err)
+	}
+	return driftWarning(path, buildAutoUpdatesConfig(string(state.PrevConfig)))
 }
 
 // autoUpdatesRevert restores the config at path (or removes it if it didn't

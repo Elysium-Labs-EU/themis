@@ -49,6 +49,49 @@ func TestSSHDisableDirectiveFixAtLifecycle(t *testing.T) {
 	}
 }
 
+// TestSSHDisableDirectiveFixAtRevertWarnDetectsPostApplyDrift reproduces
+// issue #16's SSH-7408-ROOTLOGIN repro: an admin appends a Match block
+// after apply, and RevertWarn must flag it before Revert would discard it.
+func TestSSHDisableDirectiveFixAtRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sshd_config")
+	if err := os.WriteFile(path, []byte("PermitRootLogin yes\n"), 0o600); err != nil {
+		t.Fatalf("seeding sshd_config: %v", err)
+	}
+	f := sshDisableDirectiveFixAt("TEST-ID", "test fix", path, func() error { return nil }, "PermitRootLogin")
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	if _, detected, warnErr := f.RevertWarn(revertData); warnErr != nil || detected {
+		t.Fatalf("RevertWarn immediately after Apply = (detected=%v, err=%v), want (false, nil)", detected, warnErr)
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	drifted := string(current) + "\nMatch User deploy\n    PermitRootLogin yes\n"
+	if err = os.WriteFile(path, []byte(drifted), 0o600); err != nil {
+		t.Fatalf("simulating drift: %v", err)
+	}
+
+	msg, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect the post-apply Match block")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+}
+
 // TestSSHDisableDirectiveFixAtIgnoresNarrowerMatchException reproduces
 // issue #15 scenario A: a genuinely wide-open global PermitRootLogin yes
 // with a Match block that only tightens it for one subnet. Check must

@@ -15,6 +15,13 @@ type Fix struct {
 	// message shown instead of applied outright. A caller can still force
 	// the apply through once they've reviewed it.
 	Warn func() (message string, detected bool, err error)
+	// RevertWarn, if set, is checked by `rollback` before Revert runs. It
+	// reports whether the file Revert is about to overwrite has changed
+	// since Apply wrote it — e.g. an admin added a legitimate line in the
+	// window between apply and rollback — so Revert is skipped and the
+	// message shown instead of silently discarding that drift. A caller
+	// can still force the revert through once they've reviewed it.
+	RevertWarn func(revertData []byte) (message string, detected bool, err error)
 	// SetTrust, if set, means this fix can affect trusted networks/IPs
 	// (e.g. fail2ban's ignoreip allowlist) — `apply` resolves a CIDR to
 	// exempt (interactively, or from --yes/--trust) and calls SetTrust with

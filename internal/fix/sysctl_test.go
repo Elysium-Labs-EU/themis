@@ -70,3 +70,48 @@ func TestSysctlFixAtLifecycleWhenFilePreexisted(t *testing.T) {
 		t.Fatalf("expected reverted content %q, got %q", original, got)
 	}
 }
+
+func TestSysctlFixAtRevertWarnDetectsPostApplyDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	f := sysctlFixAt(path, func() error { return nil })
+
+	revertData, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if f.RevertWarn == nil {
+		t.Fatal("expected RevertWarn to be set")
+	}
+	if _, detected, warnErr := f.RevertWarn(revertData); warnErr != nil || detected {
+		t.Fatalf("RevertWarn immediately after Apply = (detected=%v, err=%v), want (false, nil)", detected, warnErr)
+	}
+
+	// Simulate an admin appending a legitimate line after apply.
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading applied file: %v", err)
+	}
+	drifted := string(current) + "net.ipv4.conf.all.log_martians = 1\n"
+	if err = os.WriteFile(path, []byte(drifted), 0o644); err != nil {
+		t.Fatalf("simulating drift: %v", err)
+	}
+
+	msg, detected, err := f.RevertWarn(revertData)
+	if err != nil {
+		t.Fatalf("RevertWarn: %v", err)
+	}
+	if !detected {
+		t.Fatal("expected RevertWarn to detect drift after a post-apply edit")
+	}
+	if msg == "" {
+		t.Fatal("expected a non-empty warning message")
+	}
+
+	if err := f.Revert(revertData); err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("Revert should have discarded the drift once called — RevertWarn only informs, it doesn't block")
+	}
+}

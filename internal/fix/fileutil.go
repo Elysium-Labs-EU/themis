@@ -108,3 +108,22 @@ func packageInstalled(name string) bool {
 func dpkgStatusInstalled(status string) bool {
 	return strings.TrimSpace(status) == "install ok installed"
 }
+
+// driftWarning reports whether path's current on-disk content differs from
+// wantPostApply — the content Apply wrote there — so a Fix's RevertWarn can
+// tell an operator their post-apply edits are about to be discarded instead
+// of Revert silently overwriting them. A missing file is not drift: there is
+// nothing on disk to discard, so Revert proceeds without a warning.
+func driftWarning(path, wantPostApply string) (message string, detected bool, err error) {
+	current, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return "", false, err
+	}
+	if !existed || string(current) == wantPostApply {
+		return "", false, nil
+	}
+	return fmt.Sprintf(
+		"%s has changed since apply — reverting now would discard those changes; review them, then rerun rollback with --force to revert anyway",
+		path,
+	), true, nil
+}
