@@ -42,11 +42,16 @@ type Finding struct {
 	Actionable bool
 }
 
-// Report is the full merge: every Lynis finding (tagged actionable or
-// not) plus fixes that have no Lynis finding to match against.
+// Report is the full merge: every audit finding (tagged actionable or
+// not) plus fixes that have no finding, from any source, to match
+// against.
 type Report struct {
 	Findings []Finding
-	Native   []Fix
+	// Unmatched holds themis fixes whose tracked test ID was not
+	// reported by any audit source this run — not "themis-native
+	// fixes": a Lynis-tracked fix lands here just as readily when
+	// Lynis's own scan happened to find nothing wrong with it.
+	Unmatched []Fix
 	// Drift holds "was satisfied, now isn't" findings from drift-capable
 	// sources (currently internal/osquery's audit.Finding{Kind: "drift"}
 	// results). Kept separate from Findings so a regression in a fix
@@ -124,7 +129,7 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 
 	for _, f := range fixes {
 		if !matched[f.TestID] {
-			report.Native = append(report.Native, f)
+			report.Unmatched = append(report.Unmatched, f)
 		}
 	}
 	return report

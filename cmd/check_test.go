@@ -37,11 +37,12 @@ func TestPrintCheckReport(t *testing.T) {
 		Findings: []checkreport.Finding{
 			{
 				TestID: "SSH-7408", Kind: "warning", Description: "harden ssh", Actionable: true,
-				Fixes: []checkreport.Fix{{TestID: "SSH-7408-ROOTLOGIN", Satisfied: false}},
+				Fixes:   []checkreport.Fix{{TestID: "SSH-7408-ROOTLOGIN", Satisfied: false}},
+				Sources: []string{"lynis"},
 			},
-			{TestID: "MISC-0001", Kind: "suggestion", Description: "minor thing", Actionable: false},
+			{TestID: "MISC-0001", Kind: "suggestion", Description: "minor thing", Actionable: false, Sources: []string{"lynis"}},
 		},
-		Native: []checkreport.Fix{
+		Unmatched: []checkreport.Fix{
 			{TestID: "THEMIS-FAIL2BAN", Description: "fail2ban jail", Satisfied: false},
 			{TestID: "THEMIS-OK", Description: "already ok", Satisfied: true},
 		},
@@ -53,11 +54,12 @@ func TestPrintCheckReport(t *testing.T) {
 
 	for _, want := range []string{
 		"audit reported 2 finding(s)",
+		"Lynis findings",
 		"SSH-7408",
 		"themis fix:",
 		"can't act on directly", // deemphasized block header
 		"MISC-0001",
-		"themis-native checks",
+		"unmatched themis fixes",
 		"THEMIS-FAIL2BAN",
 		"not satisfied",
 		"themis apply",
@@ -65,6 +67,32 @@ func TestPrintCheckReport(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n---\n%s", want, out)
 		}
+	}
+}
+
+func TestPrintCheckReportSplitsFindingsBySource(t *testing.T) {
+	report := checkreport.Report{
+		Findings: []checkreport.Finding{
+			{TestID: "HRDN-7230", Kind: "suggestion", Description: "install a malware scanner", Solution: "install rkhunter", Actionable: true, Sources: []string{"lynis"}},
+			{TestID: "THEMIS-FAIL2BAN", Kind: "warning", Description: "fail2ban is not running", Actionable: true, Sources: []string{"themis"}},
+		},
+	}
+
+	buf := &bytes.Buffer{}
+	printCheckReport(buf, report, false)
+	out := buf.String()
+
+	lynisSection := strings.Index(out, "Lynis findings")
+	themisSection := strings.Index(out, "themis-native findings")
+	hrdn := strings.Index(out, "HRDN-7230")
+	fail2ban := strings.Index(out, "THEMIS-FAIL2BAN")
+
+	if lynisSection == -1 || themisSection == -1 {
+		t.Fatalf("expected both a Lynis and a themis-native section header:\n%s", out)
+	}
+	if lynisSection >= hrdn || hrdn >= themisSection || themisSection >= fail2ban {
+		t.Errorf("expected HRDN-7230 under the Lynis section and THEMIS-FAIL2BAN under the themis-native section, got order lynisSection=%d hrdn=%d themisSection=%d fail2ban=%d:\n%s",
+			lynisSection, hrdn, themisSection, fail2ban, out)
 	}
 }
 
