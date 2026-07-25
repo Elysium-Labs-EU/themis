@@ -74,9 +74,9 @@ var checkCmd = newCheckCmd()
 func fixSummary(fixes []checkreport.Fix) string {
 	parts := make([]string, 0, len(fixes))
 	for _, f := range fixes {
-		icon := ui.LabelWarning.Render("○ apply")
+		icon := ui.FixIcon("○ apply", ui.StatusPending)
 		if f.Satisfied {
-			icon = ui.LabelSuccess.Render("✓ fixed")
+			icon = ui.FixIcon("✓ fixed", ui.StatusSatisfied)
 		}
 		parts = append(parts, f.TestID+" "+icon)
 	}
@@ -135,9 +135,9 @@ func printNativeChecks(out io.Writer, native []checkreport.Fix) {
 	}
 	_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no matching finding):"))
 	for _, f := range native {
-		status := ui.LabelSuccess.Render("✓ satisfied")
+		status := ui.FixIcon("✓ satisfied", ui.StatusSatisfied)
 		if !f.Satisfied {
-			status = ui.LabelWarning.Render("○ not satisfied")
+			status = ui.FixIcon("○ not satisfied", ui.StatusPending)
 		}
 		_, _ = fmt.Fprintf(out, "  %s %s — %s\n", status, f.TestID, f.Description)
 		if !f.Satisfied {

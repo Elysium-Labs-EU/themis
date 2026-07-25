@@ -52,7 +52,7 @@ func runApply(cmd *cobra.Command, statePath string) error {
 	var failed []string
 	for _, p := range planned {
 		if p.Satisfied {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.TextMuted.Render("[skip]   "), ui.TextBold.Render(p.TestID))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.FixLabel("[ok]", ui.StatusSatisfied), ui.TextBold.Render(p.TestID))
 			continue
 		}
 		f := fix.Registry[p.TestID]
@@ -60,11 +60,11 @@ func runApply(cmd *cobra.Command, statePath string) error {
 			msg, detected, warnErr := f.Warn()
 			if warnErr != nil {
 				failed = append(failed, p.TestID)
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — checking for warnings: %s\n", ui.LabelError.Render("[failed] "), ui.TextBold.Render(p.TestID), warnErr)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — checking for warnings: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), warnErr)
 				continue
 			}
 			if detected && !applyForce {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelWarning.Render("[warn]   "), ui.TextBold.Render(p.TestID), msg)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[warn]", ui.StatusWarned), ui.TextBold.Render(p.TestID), msg)
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "           %s\n", ui.TextMuted.Render("skipped — review and rerun with --force to apply anyway"))
 				continue
 			}
@@ -73,7 +73,7 @@ func runApply(cmd *cobra.Command, statePath string) error {
 			cidr, trustErr := resolveTrustedCIDR(cmd.InOrStdin(), cmd.OutOrStdout(), p.TestID, applyYes, applyTrust)
 			if trustErr != nil {
 				failed = append(failed, p.TestID)
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — resolving trusted network: %s\n", ui.LabelError.Render("[failed] "), ui.TextBold.Render(p.TestID), trustErr)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — resolving trusted network: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), trustErr)
 				continue
 			}
 			f.SetTrust(cidr)
@@ -93,10 +93,10 @@ func runApply(cmd *cobra.Command, statePath string) error {
 				if saveErr := state.Save(statePath, snap); saveErr != nil {
 					return fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", p.TestID, applyErr, saveErr)
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s (partial mutation recorded and revertible; rollback state saved to %s)\n", ui.LabelError.Render("[failed] "), ui.TextBold.Render(p.TestID), applyErr, statePath)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s (partial mutation recorded and revertible; rollback state saved to %s)\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), applyErr, statePath)
 				continue
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelError.Render("[failed] "), ui.TextBold.Render(p.TestID), applyErr)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), applyErr)
 			continue
 		}
 		snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
@@ -104,7 +104,7 @@ func runApply(cmd *cobra.Command, statePath string) error {
 		if err := state.Save(statePath, snap); err != nil {
 			return fmt.Errorf("applying %s: succeeded but failed to save rollback state: %w", p.TestID, err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.LabelSuccess.Render("[applied]"), ui.TextBold.Render(p.TestID), p.Description)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[applied]", ui.StatusChanged), ui.TextBold.Render(p.TestID), p.Description)
 	}
 
 	if len(failed) > 0 {

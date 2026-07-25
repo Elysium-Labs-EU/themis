@@ -6,6 +6,7 @@ import (
 
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
 	"github.com/Elysium-Labs-EU/themis/internal/fix"
+	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -86,13 +87,13 @@ var planCmd = &cobra.Command{
 		for _, p := range planned {
 			switch {
 			case p.Satisfied:
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [ok]      %s — %s\n", p.TestID, p.Description)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[ok]", ui.StatusSatisfied), p.TestID, p.Description)
 			case p.Warned:
 				warned++
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [warn]    %s — %s\n", p.TestID, p.WarnMessage)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[warn]", ui.StatusWarned), p.TestID, p.WarnMessage)
 			default:
 				toApply++
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [+apply]  %s — %s\n", p.TestID, p.Description)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[+apply]", ui.StatusPending), p.TestID, p.Description)
 			}
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%d fix(es) would be applied, %d already satisfied, %d would be skipped with a warning.\n",
