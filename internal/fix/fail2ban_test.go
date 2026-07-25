@@ -1,9 +1,91 @@
 package fix
 
 import (
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// fail2banSvcFake models systemctl's active/enabled state machine (unlike
+// fakeRunner in apply_revert_integration_test.go, which only tracks
+// active), so Revert's is-active/is-enabled-driven branch can be exercised
+// precisely.
+type fail2banSvcFake struct {
+	active  bool
+	enabled bool
+}
+
+func (s *fail2banSvcFake) run(name string, args ...string) error {
+	joined := name + " " + strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, "is-active"):
+		if !s.active {
+			return errors.New("inactive")
+		}
+	case strings.Contains(joined, "is-enabled"):
+		if !s.enabled {
+			return errors.New("disabled")
+		}
+	case joined == "systemctl enable --now fail2ban":
+		s.enabled = true
+		s.active = true
+	case joined == "systemctl disable --now fail2ban":
+		s.enabled = false
+		s.active = false
+	case joined == "systemctl disable fail2ban":
+		s.enabled = false
+	case joined == "systemctl stop fail2ban":
+		s.active = false
+	case joined == "systemctl restart fail2ban":
+		s.active = true
+	}
+	return nil
+}
+
+// TestFail2banRevertRestoresPriorServiceState is the regression test for
+// issue #14: on a box where fail2ban was already installed but not
+// active/enabled before apply (e.g. it ships in the base image but Debian
+// 12+ needs backend=systemd to actually start), Revert used to
+// unconditionally run "systemctl restart fail2ban", leaving the service
+// permanently active+enabled regardless of its state before apply.
+func TestFail2banRevertRestoresPriorServiceState(t *testing.T) {
+	cases := []struct {
+		name          string
+		activeBefore  bool
+		enabledBefore bool
+	}{
+		{"inactive and disabled (issue #14 repro)", false, false},
+		{"active and enabled", true, true},
+		{"active but disabled", true, false},
+		{"inactive but enabled", false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "jail.local")
+			svc := &fail2banSvcFake{active: tc.activeBefore, enabled: tc.enabledBefore}
+			f := fail2banFixWith(path, svc.run, func(string) bool { return true })
+
+			data, err := f.Apply()
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if !svc.active || !svc.enabled {
+				t.Fatalf("expected Apply to leave fail2ban active+enabled, got active=%v enabled=%v", svc.active, svc.enabled)
+			}
+
+			if err := f.Revert(data); err != nil {
+				t.Fatalf("Revert: %v", err)
+			}
+			if svc.active != tc.activeBefore {
+				t.Errorf("active after revert = %v, want %v (pre-apply state)", svc.active, tc.activeBefore)
+			}
+			if svc.enabled != tc.enabledBefore {
+				t.Errorf("enabled after revert = %v, want %v (pre-apply state)", svc.enabled, tc.enabledBefore)
+			}
+		})
+	}
+}
 
 func TestSSHDJailEnabled(t *testing.T) {
 	cases := []struct {
