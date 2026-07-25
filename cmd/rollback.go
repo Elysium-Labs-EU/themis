@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/Elysium-Labs-EU/themis/internal/fix"
 	"github.com/Elysium-Labs-EU/themis/internal/state"
@@ -20,8 +21,7 @@ var rollbackCmd = &cobra.Command{
 
 		// Revert in reverse order (LIFO) so later fixes unwind before
 		// the ones they may depend on.
-		for i := len(snap.Entries) - 1; i >= 0; i-- {
-			entry := snap.Entries[i]
+		for _, entry := range slices.Backward(snap.Entries) {
 			f, ok := fix.Registry[entry.TestID]
 			if !ok {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — no longer registered\n", ui.LabelWarning.Render("[skip]    "), ui.TextBold.Render(entry.TestID))

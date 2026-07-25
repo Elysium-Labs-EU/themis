@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -185,7 +186,7 @@ func SSHDBanactionScoped(content string) bool {
 // the named INI section. Pure — no I/O.
 func sectionHasKeyValue(content, section, key, value string) bool {
 	inSection := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inSection = trimmed == "["+section+"]"
@@ -234,10 +235,8 @@ func ensureIgnoreIP(content, cidr string) string {
 		return content + "\n[DEFAULT]\nignoreip = 127.0.0.1/8 ::1 " + cidr + "\n"
 	}
 	existing := sectionKeyValue(content, "DEFAULT", "ignoreip")
-	for _, tok := range strings.Fields(existing) {
-		if tok == cidr {
-			return content
-		}
+	if slices.Contains(strings.Fields(existing), cidr) {
+		return content
 	}
 	updated := "127.0.0.1/8 ::1 " + cidr
 	if existing != "" {
@@ -250,7 +249,7 @@ func ensureIgnoreIP(content, cidr string) string {
 // section, or "" if the key isn't set there. Pure — no I/O.
 func sectionKeyValue(content, section, key string) string {
 	inSection := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inSection = trimmed == "["+section+"]"
@@ -265,7 +264,7 @@ func sectionKeyValue(content, section, key string) string {
 
 // hasSection reports whether content contains a "[section]" header.
 func hasSection(content, section string) bool {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		if strings.TrimSpace(line) == "["+section+"]" {
 			return true
 		}

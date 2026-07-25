@@ -1,5 +1,7 @@
 package fix
 
+import "strings"
+
 const sysctlDropInPath = "/etc/sysctl.d/60-themis-hardening.conf"
 
 var sysctlHardeningSettings = []string{
@@ -67,9 +69,11 @@ func sysctlFixAt(path string, reload func() error) Fix {
 
 // buildSysctlDropIn renders the desired drop-in file content. Pure — no I/O.
 func buildSysctlDropIn() string {
-	content := "# managed by themis\n"
+	var b strings.Builder
+	b.WriteString("# managed by themis\n")
 	for _, line := range sysctlHardeningSettings {
-		content += line + "\n"
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
-	return content
+	return b.String()
 }
