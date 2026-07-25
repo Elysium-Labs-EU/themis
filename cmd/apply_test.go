@@ -126,6 +126,52 @@ func TestApplyPreservesStateForFixesAppliedBeforeAFailure(t *testing.T) {
 	}
 }
 
+// TestApplyContinuesPastAFailedFixToApplyTheRest is the regression test
+// for issue #9: on Alpine, FIRE-4590's Apply fails because it shells out
+// to apt-get, which doesn't exist there. That must not stop the run from
+// attempting other, unrelated fixes (e.g. KRNL-6000, a plain sysctl
+// drop-in with no apt dependency at all) — every fix is independent, and
+// a failure in one must still let the rest be attempted and their state
+// saved.
+func TestApplyContinuesPastAFailedFixToApplyTheRest(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+
+	bApplyCalled := false
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "debian-specific fix that fails on this platform", func() ([]byte, error) {
+			return nil, errors.New("resolving apt-get: apt-get: not found in trusted dirs")
+		}),
+		"B-FIX": unsatisfiedFix("B-FIX", "platform-neutral fix with no dependency on A-FIX", func() ([]byte, error) {
+			bApplyCalled = true
+			return []byte("b"), nil
+		}),
+	})
+
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	err := runApply(cmd, statePath)
+	if err == nil {
+		t.Fatal("expected runApply to return an error since A-FIX failed")
+	}
+	if !bApplyCalled {
+		t.Fatal("B-FIX's Apply was never called — a failure in A-FIX must not block unrelated fixes")
+	}
+
+	snap, loadErr := state.Load(statePath)
+	if loadErr != nil {
+		t.Fatalf("Load after A-FIX's failure: %v (B-FIX should have applied and saved state)", loadErr)
+	}
+	if len(snap.Entries) != 1 || snap.Entries[0].TestID != "B-FIX" {
+		t.Fatalf("state after A-FIX's failure = %+v, want just B-FIX", snap.Entries)
+	}
+	if !strings.Contains(buf.String(), "A-FIX") || !strings.Contains(buf.String(), "B-FIX") {
+		t.Errorf("expected output to mention both fixes, got %q", buf.String())
+	}
+}
+
 // TestApplyRecordsPartialRevertDataOnError is the regression test for
 // issue #10: a Fix.Apply() that writes its target file and then fails at a
 // later step (e.g. a service reload) may return non-nil revertData
