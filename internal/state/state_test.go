@@ -94,6 +94,79 @@ func TestLoadRejectsGroupOrOtherAccessibleMode(t *testing.T) {
 	}
 }
 
+func TestLoadOrEmptyReturnsZeroSnapshotForMissingFile(t *testing.T) {
+	got, err := LoadOrEmpty(filepath.Join(t.TempDir(), "missing.json"))
+	if err != nil {
+		t.Fatalf("LoadOrEmpty: %v", err)
+	}
+	if len(got.Entries) != 0 {
+		t.Fatalf("Entries = %+v, want empty", got.Entries)
+	}
+}
+
+func TestLoadOrEmptyLoadsExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	want := Snapshot{Entries: []Entry{{TestID: "A-FIX", RevertData: []byte("a")}}}
+	if err := Save(path, want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := LoadOrEmpty(path)
+	if err != nil {
+		t.Fatalf("LoadOrEmpty: %v", err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].TestID != "A-FIX" {
+		t.Fatalf("Entries = %+v, want [A-FIX]", got.Entries)
+	}
+}
+
+func TestUpsertAppendsNewTestID(t *testing.T) {
+	entries := []Entry{{TestID: "A-FIX", RevertData: []byte("a")}}
+	got := Upsert(entries, Entry{TestID: "B-FIX", RevertData: []byte("b")})
+	if len(got) != 2 || got[0].TestID != "A-FIX" || got[1].TestID != "B-FIX" {
+		t.Fatalf("Upsert append = %+v, want [A-FIX B-FIX]", got)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Upsert mutated its input slice: %+v", entries)
+	}
+}
+
+func TestUpsertReplacesExistingTestIDInPlace(t *testing.T) {
+	entries := []Entry{
+		{TestID: "A-FIX", RevertData: []byte("old-a")},
+		{TestID: "B-FIX", RevertData: []byte("b")},
+	}
+	got := Upsert(entries, Entry{TestID: "A-FIX", RevertData: []byte("new-a")})
+	if len(got) != 2 {
+		t.Fatalf("Upsert replace = %+v, want 2 entries", got)
+	}
+	if got[0].TestID != "A-FIX" || string(got[0].RevertData) != "new-a" {
+		t.Fatalf("got[0] = %+v, want A-FIX with new-a", got[0])
+	}
+	if got[1].TestID != "B-FIX" {
+		t.Fatalf("got[1] = %+v, want B-FIX preserved", got[1])
+	}
+}
+
+func TestRemoveDropsMatchingTestID(t *testing.T) {
+	entries := []Entry{
+		{TestID: "A-FIX", RevertData: []byte("a")},
+		{TestID: "B-FIX", RevertData: []byte("b")},
+	}
+	got := Remove(entries, "A-FIX")
+	if len(got) != 1 || got[0].TestID != "B-FIX" {
+		t.Fatalf("Remove = %+v, want [B-FIX]", got)
+	}
+}
+
+func TestRemoveNoMatchReturnsAllEntries(t *testing.T) {
+	entries := []Entry{{TestID: "A-FIX", RevertData: []byte("a")}}
+	got := Remove(entries, "NOT-PRESENT")
+	if len(got) != 1 || got[0].TestID != "A-FIX" {
+		t.Fatalf("Remove = %+v, want [A-FIX] unchanged", got)
+	}
+}
+
 func TestVerifyOwnerAndModeRejectsWrongUID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := Save(path, Snapshot{}); err != nil {
