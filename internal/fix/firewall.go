@@ -147,7 +147,7 @@ func firewallRevert(data []byte, run cmdRunner) error {
 // after FIRE-4590 applies (issue #18). Pure — no I/O.
 func sshAllowPorts(sshdConfig string) []string {
 	var ports []string
-	for _, line := range strings.Split(sshdConfig, "\n") {
+	for line := range strings.SplitSeq(sshdConfig, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) >= 2 && strings.EqualFold(fields[0], "Port") {
 			ports = append(ports, fields[1])
@@ -164,7 +164,7 @@ func sshAllowPorts(sshdConfig string) []string {
 // "OpenSSH" app profile, since operators commonly `ufw allow OpenSSH` rather
 // than the raw port number. Pure — no I/O.
 func ufwAllowsPort(statusOutput, port string) bool {
-	for _, line := range strings.Split(statusOutput, "\n") {
+	for line := range strings.SplitSeq(statusOutput, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || !strings.Contains(line, "ALLOW") {
 			continue
@@ -183,7 +183,7 @@ func ufwAllowsPort(statusOutput, port string) bool {
 // "allow", "reject", or "" if not found) from `ufw status verbose`
 // output. Pure — no I/O.
 func parseDefaultIncoming(statusOutput string) string {
-	for _, line := range strings.Split(statusOutput, "\n") {
+	for line := range strings.SplitSeq(statusOutput, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "Default:") {
 			continue
