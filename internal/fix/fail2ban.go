@@ -18,6 +18,12 @@ const fail2banJailLocalPath = "/etc/fail2ban/jail.local"
 const banactionMultiport = "iptables-multiport"
 
 type fail2banState struct {
+	// TrustedCIDR is the CIDR (if any) SetTrust passed before Apply ran,
+	// captured so RevertWarn can recompute the exact content Apply wrote —
+	// ensureIgnoreIP depends on it and it isn't otherwise derivable from
+	// PrevConfig alone. A state.json from before this field existed
+	// unmarshals it as "", matching the no-exemption default.
+	TrustedCIDR   string `json:"trusted_cidr,omitempty"`
 	PrevConfig    []byte `json:"prev_config"`
 	WasInstalled  bool   `json:"was_installed"`
 	ConfigExisted bool   `json:"config_existed"`
@@ -44,6 +50,7 @@ func fail2banFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
 		SetTrust:    func(cidr string) { trustedCIDR = cidr },
 		Check:       func() (bool, error) { return fail2banCheck(path, run) },
 		Apply:       func() ([]byte, error) { return fail2banApply(path, run, pkgInstalled, trustedCIDR) },
+		RevertWarn:  func(data []byte) (string, bool, error) { return fail2banRevertWarn(data, path) },
 		Revert:      func(data []byte) error { return fail2banRevert(data, path, run) },
 	}
 }
@@ -92,12 +99,26 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 		ConfigExisted: existed,
 		WasActive:     wasActive,
 		WasEnabled:    wasEnabled,
+		TrustedCIDR:   trustedCIDR,
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling fail2ban revert state: %w", err)
 	}
 	return data, nil
+}
+
+// fail2banRevertWarn reports whether the config at path has changed since
+// Apply wrote it, by recomputing the exact content Apply produced (from
+// PrevConfig and TrustedCIDR, the same inputs ensureSSHDJail/ensureIgnoreIP
+// used) and comparing it to what's on disk now.
+func fail2banRevertWarn(data []byte, path string) (string, bool, error) {
+	var state fail2banState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", false, fmt.Errorf("unmarshaling fail2ban revert state: %w", err)
+	}
+	wantPostApply := ensureIgnoreIP(ensureSSHDJail(string(state.PrevConfig)), state.TrustedCIDR)
+	return driftWarning(path, wantPostApply)
 }
 
 // fail2banRevert restores the config at path (or removes it if it didn't
