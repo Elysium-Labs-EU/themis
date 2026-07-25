@@ -65,8 +65,7 @@ func (k *fakeSysctlKernel) reloadFrom(path string) error {
 func TestSysctlFixAtLifecycleWhenFileMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
 	kernel := newFakeSysctlKernel()
-	noopReload := func() error { return nil }
-	f := sysctlFixAt(path, kernel.outRun, kernel.run, noopReload)
+	f := sysctlFixAt(path, kernel.outRun, kernel.run, func() error { return kernel.reloadFrom(path) })
 
 	satisfied, err := f.Check()
 	if err != nil {
@@ -169,6 +168,40 @@ func TestSysctlFixAtRevertWarnDetectsPostApplyDrift(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("Revert should have discarded the drift once called — RevertWarn only informs, it doesn't block")
+	}
+}
+
+// TestSysctlFixAtCheckDetectsLiveDrift is the regression test for issue #74:
+// Check must not report satisfied when the drop-in file still matches the
+// desired content but a live value has drifted out of band (e.g. an
+// operator ran `sysctl -w`), since #20 already established the file and
+// the live kernel can diverge and both sides must be verified.
+func TestSysctlFixAtCheckDetectsLiveDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	kernel := newFakeSysctlKernel()
+	f := sysctlFixAt(path, kernel.outRun, kernel.run, func() error { return kernel.reloadFrom(path) })
+
+	if _, err := f.Apply(); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	satisfied, err := f.Check()
+	if err != nil {
+		t.Fatalf("Check after Apply: %v", err)
+	}
+	if !satisfied {
+		t.Fatal("expected satisfied immediately after Apply")
+	}
+
+	// Simulate an operator running `sysctl -w net.ipv4.tcp_syncookies=0`
+	// directly, out of band, leaving the drop-in file untouched.
+	kernel.values["net.ipv4.tcp_syncookies"] = "0"
+
+	satisfied, err = f.Check()
+	if err != nil {
+		t.Fatalf("Check after live drift: %v", err)
+	}
+	if satisfied {
+		t.Fatal("expected unsatisfied once a live value drifts from the file, even though the file itself is unchanged")
 	}
 }
 
