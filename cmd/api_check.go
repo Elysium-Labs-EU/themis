@@ -30,9 +30,9 @@ type apiDrift struct {
 }
 
 type apiCheckResult struct {
-	Findings    []apiFinding `json:"findings"`
-	NativeFixes []apiFix     `json:"native_fixes"`
-	Drift       []apiDrift   `json:"drift"`
+	Findings       []apiFinding `json:"findings"`
+	UnmatchedFixes []apiFix     `json:"unmatched_fixes"`
+	Drift          []apiDrift   `json:"drift"`
 }
 
 var apiCheckCmd = &cobra.Command{
@@ -42,7 +42,9 @@ var apiCheckCmd = &cobra.Command{
 finding merged with any themis fix that tracks it, plus themis fixes that
 have no matching finding. Unlike ` + "`themis check`" + `, nothing is filtered — the
 "actionable" field marks findings that are noise (no themis fix, no
-solution hint, not a warning) versus ones worth acting on.
+solution hint, not a warning) versus ones worth acting on. "sources" is
+what tells a caller who asserted a given finding (Lynis vs a
+themis-native check vs OpenSCAP) without guessing from the test_id format.
 
 Output schema (stdout, JSON):
   {
@@ -59,8 +61,11 @@ Output schema (stdout, JSON):
         ]
       }
     ],
-    "native_fixes": [
+    "unmatched_fixes": [
       { "test_id": string, "description": string, "satisfied": bool }
+      -- themis fixes whose tracked test ID was not reported by any audit
+         source this run; not native-specific — a Lynis-tracked fix lands
+         here just as readily when Lynis's own scan found nothing wrong
     ],
     "drift": [
       { "test_id": string, "description": string, "details": string }
@@ -99,9 +104,9 @@ Exit codes:
 		report := checkreport.Build(findings, fixes)
 
 		result := apiCheckResult{
-			Findings:    make([]apiFinding, 0, len(report.Findings)),
-			NativeFixes: make([]apiFix, 0, len(report.Native)),
-			Drift:       make([]apiDrift, 0, len(report.Drift)),
+			Findings:       make([]apiFinding, 0, len(report.Findings)),
+			UnmatchedFixes: make([]apiFix, 0, len(report.Unmatched)),
+			Drift:          make([]apiDrift, 0, len(report.Drift)),
 		}
 		for _, f := range report.Findings {
 			fs := make([]apiFix, 0, len(f.Fixes))
@@ -118,8 +123,8 @@ Exit codes:
 				Fixes:       fs,
 			})
 		}
-		for _, f := range report.Native {
-			result.NativeFixes = append(result.NativeFixes, apiFix{TestID: f.TestID, Description: f.Description, Satisfied: f.Satisfied})
+		for _, f := range report.Unmatched {
+			result.UnmatchedFixes = append(result.UnmatchedFixes, apiFix{TestID: f.TestID, Description: f.Description, Satisfied: f.Satisfied})
 		}
 		for _, d := range report.Drift {
 			result.Drift = append(result.Drift, apiDrift{TestID: d.TestID, Description: d.Description, Details: d.Details})

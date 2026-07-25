@@ -26,8 +26,8 @@ func TestBuildMarksFixTrackedFindingsActionable(t *testing.T) {
 	if len(f.Fixes) != 1 || f.Fixes[0].TestID != "SSH-7408-PASSWDAUTH" {
 		t.Fatalf("expected the fix to be attached to the finding, got %+v", f.Fixes)
 	}
-	if len(report.Native) != 0 {
-		t.Fatalf("expected no native fixes, got %+v", report.Native)
+	if len(report.Unmatched) != 0 {
+		t.Fatalf("expected no unmatched fixes, got %+v", report.Unmatched)
 	}
 }
 
@@ -82,8 +82,8 @@ func TestBuildCollectsUnmatchedFixesAsNative(t *testing.T) {
 	if len(report.Findings) != 0 {
 		t.Fatalf("expected no findings, got %+v", report.Findings)
 	}
-	if len(report.Native) != 1 || report.Native[0].TestID != "THEMIS-FAIL2BAN" {
-		t.Fatalf("expected the unmatched fix to be reported as native, got %+v", report.Native)
+	if len(report.Unmatched) != 1 || report.Unmatched[0].TestID != "THEMIS-FAIL2BAN" {
+		t.Fatalf("expected the unmatched fix to be reported, got %+v", report.Unmatched)
 	}
 }
 
@@ -114,8 +114,8 @@ func TestBuildRoutesDriftFindingsSeparatelyFromGenericFindings(t *testing.T) {
 	if len(report.Findings) != 0 {
 		t.Fatalf("expected drift finding to be excluded from Findings, got %+v", report.Findings)
 	}
-	if len(report.Native) != 0 {
-		t.Fatalf("expected drift finding to be excluded from Native, got %+v", report.Native)
+	if len(report.Unmatched) != 0 {
+		t.Fatalf("expected drift finding to be excluded from Unmatched, got %+v", report.Unmatched)
 	}
 	if len(report.Drift) != 1 {
 		t.Fatalf("expected 1 drift finding, got %+v", report.Drift)

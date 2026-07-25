@@ -84,6 +84,22 @@ func fixSummary(fixes []checkreport.Fix) string {
 	return strings.Join(parts, ", ")
 }
 
+// friendlySourceName renders an audit.Source.Name() for section headers
+// and inline tags. Falls back to the raw name for sources with no
+// special-cased label.
+func friendlySourceName(source string) string {
+	switch source {
+	case "lynis":
+		return "Lynis"
+	case "themis":
+		return "themis-native"
+	case "openscap":
+		return "OpenSCAP"
+	default:
+		return source
+	}
+}
+
 func printFindingBlock(out io.Writer, f *checkreport.Finding) {
 	kind := ui.TextMuted.Render(f.Kind)
 	if f.Kind == "warning" {
@@ -97,6 +113,46 @@ func printFindingBlock(out io.Writer, f *checkreport.Finding) {
 	if len(f.Fixes) > 0 {
 		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("themis fix:"), fixSummary(f.Fixes))
 	}
+	if len(f.Sources) > 1 {
+		extra := make([]string, len(f.Sources)-1)
+		for i, s := range f.Sources[1:] {
+			extra[i] = friendlySourceName(s)
+		}
+		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("also reported by:"), strings.Join(extra, ", "))
+	}
+}
+
+// sourceGroup is every finding whose primary (first-reporting) source is
+// Source, in original order.
+type sourceGroup struct {
+	Source   string
+	Findings []checkreport.Finding
+}
+
+// groupBySource splits findings by primary source — f.Sources[0], the
+// source that reported it first — preserving each finding's original
+// order within its group and ordering groups by first appearance. This
+// is what makes "who asserted this" visible without reading source code:
+// a Lynis finding and a themis-native finding never share a section.
+// Pure — no I/O.
+func groupBySource(findings []checkreport.Finding) []sourceGroup {
+	order := make([]string, 0)
+	bySource := make(map[string][]checkreport.Finding)
+	for i := range findings {
+		src := "unknown"
+		if len(findings[i].Sources) > 0 {
+			src = findings[i].Sources[0]
+		}
+		if _, ok := bySource[src]; !ok {
+			order = append(order, src)
+		}
+		bySource[src] = append(bySource[src], findings[i])
+	}
+	groups := make([]sourceGroup, 0, len(order))
+	for _, src := range order {
+		groups = append(groups, sourceGroup{Source: src, Findings: bySource[src]})
+	}
+	return groups
 }
 
 // partitionFindings splits findings into those to show and those to
@@ -123,19 +179,26 @@ func printDeemphasized(out io.Writer, deemphasized []checkreport.Finding) {
 	_, _ = fmt.Fprintf(out, "\n%s %d finding(s) themis can't act on directly (no fix, no solution hint):\n",
 		ui.TextMuted.Render("i"), len(deemphasized))
 	for i := range deemphasized {
-		_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(deemphasized[i].TestID+" — "+deemphasized[i].Description))
+		source := "unknown"
+		if len(deemphasized[i].Sources) > 0 {
+			source = friendlySourceName(deemphasized[i].Sources[0])
+		}
+		_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(deemphasized[i].TestID+" ("+source+") — "+deemphasized[i].Description))
 	}
 	_, _ = fmt.Fprintf(out, "  run %s for full details\n", ui.TextCommand.Render("themis check --all"))
 }
 
-// printNativeChecks lists themis-native checks that matched no source
-// finding, flagging any that aren't satisfied. No-op when there are none.
-func printNativeChecks(out io.Writer, native []checkreport.Fix) {
-	if len(native) == 0 {
+// printUnmatchedFixes lists themis fixes whose tracked test ID was not
+// reported by any audit source this run, flagging any that aren't
+// satisfied. Not specific to themis-native fixes — a Lynis-tracked fix
+// lands here just as readily when Lynis's own scan found nothing wrong
+// with it. No-op when there are none.
+func printUnmatchedFixes(out io.Writer, unmatched []checkreport.Fix) {
+	if len(unmatched) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("themis-native checks")+ui.TextMuted.Render(" (no matching finding):"))
-	for _, f := range native {
+	_, _ = fmt.Fprintln(out, "\n"+ui.TextBold.Render("unmatched themis fixes")+ui.TextMuted.Render(" (no finding from any source this run):"))
+	for _, f := range unmatched {
 		status := ui.FixIcon("✓ satisfied", ui.StatusSatisfied)
 		if !f.Satisfied {
 			status = ui.FixIcon("○ not satisfied", ui.StatusPending)
@@ -175,13 +238,20 @@ func printCheckReport(out io.Writer, report checkreport.Report, showAll bool) {
 
 	_, _ = fmt.Fprintf(out, "%s audit reported %d finding(s)\n\n", ui.LabelInfo.Render("i"), len(report.Findings))
 
-	for i := range shown {
-		if i > 0 {
+	groups := groupBySource(shown)
+	for gi, g := range groups {
+		if gi > 0 {
 			_, _ = fmt.Fprintln(out)
 		}
-		printFindingBlock(out, &shown[i])
+		_, _ = fmt.Fprintln(out, ui.TextBold.Render(friendlySourceName(g.Source)+" findings")+ui.TextMuted.Render(":"))
+		for i := range g.Findings {
+			if i > 0 {
+				_, _ = fmt.Fprintln(out)
+			}
+			printFindingBlock(out, &g.Findings[i])
+		}
 	}
 
 	printDeemphasized(out, deemphasized)
-	printNativeChecks(out, report.Native)
+	printUnmatchedFixes(out, report.Unmatched)
 }
