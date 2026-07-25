@@ -16,6 +16,22 @@ type Source struct {
 // without it.
 func NewSource(opts Options) Source { return Source{opts: opts} }
 
+// init registers openscap in the audit source registry so the command
+// layer builds it by name via audit.Enabled. order 40 keeps it last,
+// matching the historical order. Unlike the other sources, openscap is
+// only enabled when a content path is configured: with none it returns
+// audit.ErrSourceNotEnabled, so Enabled leaves it out entirely (most
+// hosts have no SCAP content installed, and — unlike lynis — it is not a
+// themis dependency).
+func init() {
+	audit.Register("openscap", 40, func(cfg audit.SourceConfig) (audit.Source, error) {
+		if cfg.OpenSCAPContentPath == "" {
+			return nil, audit.ErrSourceNotEnabled
+		}
+		return NewSource(Options{ContentPath: cfg.OpenSCAPContentPath, Profile: cfg.OpenSCAPProfile}), nil
+	})
+}
+
 // Name identifies this source as "openscap".
 func (Source) Name() string { return "openscap" }
 

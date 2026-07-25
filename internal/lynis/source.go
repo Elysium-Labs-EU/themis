@@ -17,6 +17,16 @@ type Source struct {
 // and reuses the last report.
 func NewSource(opts Options) Source { return Source{opts: opts} }
 
+// init registers lynis in the audit source registry so the command layer
+// builds it by name via audit.Enabled rather than constructing it inline.
+// order 10 keeps lynis first in the enabled set, matching the historical
+// order.
+func init() {
+	audit.Register("lynis", 10, func(cfg audit.SourceConfig) (audit.Source, error) {
+		return NewSource(Options{Quick: cfg.LynisQuick, SkipIfUnchanged: cfg.LynisSkipUnchanged}), nil
+	})
+}
+
 // Name identifies this source as "lynis".
 func (Source) Name() string { return "lynis" }
 

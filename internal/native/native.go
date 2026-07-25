@@ -21,6 +21,15 @@ type Source struct{}
 // NewSource returns a themis-native audit.Source.
 func NewSource() Source { return Source{} }
 
+// init registers themis-native in the audit source registry so the
+// command layer builds it by name via audit.Enabled. order 20 keeps it
+// after lynis, matching the historical order.
+func init() {
+	audit.Register("themis", 20, func(audit.SourceConfig) (audit.Source, error) {
+		return NewSource(), nil
+	})
+}
+
 // Name identifies this source as "themis".
 func (Source) Name() string { return "themis" }
 

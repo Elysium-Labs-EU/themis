@@ -39,6 +39,16 @@ func NewSource(statePath string) Source {
 	return Source{statePath: statePath, query: Query}
 }
 
+// init registers osquery in the audit source registry so the command
+// layer builds it by name via audit.Enabled. order 30 keeps it after
+// lynis and themis-native, matching the historical order. It is always
+// enabled: it no-ops on a host with no prior apply state or no osqueryi.
+func init() {
+	audit.Register("osquery", 30, func(cfg audit.SourceConfig) (audit.Source, error) {
+		return NewSource(cfg.OsqueryStatePath), nil
+	})
+}
+
 // newSourceWith builds a Source with an injected query func, for tests.
 func newSourceWith(statePath string, query queryFunc) Source {
 	return Source{statePath: statePath, query: query}

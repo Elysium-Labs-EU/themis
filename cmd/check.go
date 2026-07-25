@@ -7,28 +7,32 @@ import (
 
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
-	"github.com/Elysium-Labs-EU/themis/internal/lynis"
-	"github.com/Elysium-Labs-EU/themis/internal/native"
-	"github.com/Elysium-Labs-EU/themis/internal/openscap"
-	"github.com/Elysium-Labs-EU/themis/internal/osquery"
+	// Blank imports register each audit source in the audit registry via
+	// its package init(). themis check, themis api check, and any future
+	// caller build the enabled set by name through audit.Enabled rather
+	// than constructing sources inline, so adding a source is a new
+	// package plus one blank import here — no edit to the command bodies.
+	_ "github.com/Elysium-Labs-EU/themis/internal/lynis"
+	_ "github.com/Elysium-Labs-EU/themis/internal/native"
+	_ "github.com/Elysium-Labs-EU/themis/internal/openscap"
+	_ "github.com/Elysium-Labs-EU/themis/internal/osquery"
 	"github.com/Elysium-Labs-EU/themis/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-// sources lists every audit source themis runs when auditing the system
-// (themis check, themis api check). osquery.NewSource is always included:
-// it no-ops (no findings, no error) on a host with no prior `themis apply`
-// state or no osqueryi binary installed, so it's safe to run
-// unconditionally. scapContent, when non-empty, adds an OpenSCAP source
-// evaluating that SCAP/XCCDF datastream (optionally scoped to scapProfile);
-// empty leaves OpenSCAP out entirely, since — unlike lynis — it's not a
-// themis dependency and most hosts won't have SCAP content installed.
-func sources(lynisOpts lynis.Options, scapContent, scapProfile string) []audit.Source {
-	srcs := []audit.Source{lynis.NewSource(lynisOpts), native.NewSource(), osquery.NewSource("")}
-	if scapContent != "" {
-		srcs = append(srcs, openscap.NewSource(openscap.Options{ContentPath: scapContent, Profile: scapProfile}))
+// checkSourceConfig maps the audit-related CLI flags onto the per-source
+// options audit.Enabled needs to build the enabled set. Which sources
+// actually run — and in what order — lives in the registry (each source's
+// package init), not here: osquery always runs (it no-ops without prior
+// apply state or an osqueryi binary), and openscap only runs when
+// scapContent is set. Pure — no I/O.
+func checkSourceConfig(quick, skipUnchanged bool, scapContent, scapProfile string) audit.SourceConfig {
+	return audit.SourceConfig{
+		LynisQuick:          quick,
+		LynisSkipUnchanged:  skipUnchanged,
+		OpenSCAPContentPath: scapContent,
+		OpenSCAPProfile:     scapProfile,
 	}
-	return srcs
 }
 
 func newCheckCmd() *cobra.Command {
@@ -44,9 +48,11 @@ func newCheckCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var findings []audit.Finding
 			err := ui.WithSpinner("Running audit...", func() error {
-				var err error
-				lynisOpts := lynis.Options{Quick: quick, SkipIfUnchanged: skipUnchanged}
-				findings, err = audit.Run(cmd.Context(), sources(lynisOpts, scapContent, scapProfile))
+				srcs, err := audit.Enabled(checkSourceConfig(quick, skipUnchanged, scapContent, scapProfile))
+				if err != nil {
+					return err
+				}
+				findings, err = audit.Run(cmd.Context(), srcs)
 				return err
 			})
 			if err != nil {
