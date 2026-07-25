@@ -21,6 +21,8 @@ type fail2banState struct {
 	PrevConfig    []byte `json:"prev_config"`
 	WasInstalled  bool   `json:"was_installed"`
 	ConfigExisted bool   `json:"config_existed"`
+	WasActive     bool   `json:"was_active"`
+	WasEnabled    bool   `json:"was_enabled"`
 }
 
 // fail2banFix has no Lynis equivalent — it demonstrates a themis-native
@@ -70,6 +72,8 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 			return nil, err
 		}
 	}
+	wasActive := run("systemctl", "is-active", "--quiet", "fail2ban") == nil
+	wasEnabled := run("systemctl", "is-enabled", "--quiet", "fail2ban") == nil
 	original, existed, err := ReadFileOrEmpty(path)
 	if err != nil {
 		return nil, err
@@ -82,7 +86,13 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 	if enableErr := run("systemctl", "enable", "--now", "fail2ban"); enableErr != nil {
 		return nil, enableErr
 	}
-	state := fail2banState{WasInstalled: wasInstalled, PrevConfig: original, ConfigExisted: existed}
+	state := fail2banState{
+		WasInstalled:  wasInstalled,
+		PrevConfig:    original,
+		ConfigExisted: existed,
+		WasActive:     wasActive,
+		WasEnabled:    wasEnabled,
+	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling fail2ban revert state: %w", err)
@@ -91,7 +101,11 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 }
 
 // fail2banRevert restores the config at path (or removes it if it didn't
-// exist) and undoes the install/enable using the JSON revert state.
+// exist) and undoes the install/enable using the JSON revert state,
+// restoring the service's prior active/enabled state rather than
+// unconditionally leaving it running (issue #14: a box where fail2ban was
+// installed-but-inactive before apply must end rollback inactive again, not
+// permanently running).
 func fail2banRevert(data []byte, path string, run cmdRunner) error {
 	var state fail2banState
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -108,7 +122,19 @@ func fail2banRevert(data []byte, path string, run cmdRunner) error {
 		_ = run("systemctl", "disable", "--now", "fail2ban")
 		return run("apt-get", "remove", "-y", "fail2ban")
 	}
-	return run("systemctl", "restart", "fail2ban")
+	switch {
+	case !state.WasActive && !state.WasEnabled:
+		return run("systemctl", "disable", "--now", "fail2ban")
+	case !state.WasActive:
+		return run("systemctl", "stop", "fail2ban")
+	case !state.WasEnabled:
+		if err := run("systemctl", "disable", "fail2ban"); err != nil {
+			return err
+		}
+		return run("systemctl", "restart", "fail2ban")
+	default:
+		return run("systemctl", "restart", "fail2ban")
+	}
 }
 
 // fail2banWarn flags hosts where pinning banaction ourselves may not be the
