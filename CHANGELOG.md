@@ -2,6 +2,113 @@
 
 All notable changes to themis are documented here.
 
+## [0.0.3] - 2026-07-25
+
+### Bug Fixes
+- Themis-fix-issue-79 (#79) (#80) ([`de02e4a`](https://github.com/Elysium-Labs-EU/themis/commit/de02e4ab1bf35e7ca8d181d132e7fa994557c70f))
+
+## [0.0.3-rc.4] - 2026-07-25
+
+### Bug Fixes
+- Themis-fix-issue-5 (#5) (#77) ([`811327d`](https://github.com/Elysium-Labs-EU/themis/commit/811327d1a6d92e2d030122ca7330c08d7fc2e60f))
+- Themis-fix-issue-73 (#73) (#75) ([`323681c`](https://github.com/Elysium-Labs-EU/themis/commit/323681c58111f3ea0625140c1922d4e3df36abaa))
+- Themis-fix-issue-74 (#74) (#76) ([`2bc1728`](https://github.com/Elysium-Labs-EU/themis/commit/2bc1728ef1ee3bdbbb6851c6459bec74792f1207))
+- Smarter/scoped lynis scans via skip-if-unchanged fingerprinting (#78) ([`71aa6f8`](https://github.com/Elysium-Labs-EU/themis/commit/71aa6f81ae2e116c3226ed77b5c375c3fc9d2ecf))
+
+## [0.0.3-rc.3] - 2026-07-25
+
+### Bug Fixes
+- Fix-issue-60 (#60) (#62) ([`04ebbc5`](https://github.com/Elysium-Labs-EU/themis/commit/04ebbc5dfbb2755d41f47aaffafa1f811f81770f))
+- Fix-issue-2 (#2) (#61) ([`633de09`](https://github.com/Elysium-Labs-EU/themis/commit/633de09a7e0aedbc40b5380f31b7881c13a7d74f))
+- Fix-issue-54 (#54) (#63) ([`6db7c0d`](https://github.com/Elysium-Labs-EU/themis/commit/6db7c0ddbedfbf9344b77b29a47f7a1f1f521c1a))
+- Themis-fix-issue-14 (#14) (#64) ([`f147a0f`](https://github.com/Elysium-Labs-EU/themis/commit/f147a0fc55c6c39b8e752c4424b189b885715558))
+- Themis-fix-issue-17 (#17) (#66) ([`d5a9ba5`](https://github.com/Elysium-Labs-EU/themis/commit/d5a9ba509eb1f442c815931e94cee259cfb764f6))
+- Themis-fix-issue-16 (#16) (#65) ([`afc82dc`](https://github.com/Elysium-Labs-EU/themis/commit/afc82dca55af199474ae6766bf51aa8088cd56e3))
+- Themis-fix-issue-13 (#13) (#67) ([`8d21394`](https://github.com/Elysium-Labs-EU/themis/commit/8d21394cf29e19c85557a3e437c66d8c2542dc72))
+- Themis-fix-issue-12 (#12) (#68) ([`0be2e81`](https://github.com/Elysium-Labs-EU/themis/commit/0be2e814a677eb14bb03f70ae4c783a329ff4219))
+- Themis-fix-issue-21 (#21) (#70) ([`6b7dd78`](https://github.com/Elysium-Labs-EU/themis/commit/6b7dd784df33d31ca1b3cefb05fa9a0d22e58f50))
+- Themis-fix-issue-20 (#20) (#69) ([`759c207`](https://github.com/Elysium-Labs-EU/themis/commit/759c2078739f1590caa75806d18ef4f60685b16f))
+- Themis-fix-issue-9 (#9) (#71) ([`8df37fe`](https://github.com/Elysium-Labs-EU/themis/commit/8df37fea333575c995e560b092849f1dfbcdaca4))
+- Themis-fix-issue-11 (#11) (#72) ([`0dfe93e`](https://github.com/Elysium-Labs-EU/themis/commit/0dfe93ede8440d3ff647d0303e186e469aa7f1ee))
+
+## [0.0.3-rc.2] - 2026-07-25
+
+### Bug Fixes
+- Persist rollback state after every successful fix, not just at loop end ([`8d5ffcf`](https://github.com/Elysium-Labs-EU/themis/commit/8d5ffcf4ff85a0bcc34f42ca56d3fa9c89e10b95))
+- Stop scanning past sshd_config Match blocks when reading/patching directives ([`bded73c`](https://github.com/Elysium-Labs-EU/themis/commit/bded73c369c056a4f1000b6392c65aab7dc54000))
+- Allow sshd's configured port before enabling default-deny ([`c1f2d7e`](https://github.com/Elysium-Labs-EU/themis/commit/c1f2d7e1823fa88b7ae0782dc9a63d964eae6dcf))
+- Record and persist a fix's partial revert data on Apply() error (#25) ([`2e3b007`](https://github.com/Elysium-Labs-EU/themis/commit/2e3b00755fc444b6053f53d84760346db5424847))
+- Fix-issue-27 (#27) ([`8eb8f41`](https://github.com/Elysium-Labs-EU/themis/commit/8eb8f4169ed2dbe4a6b173c1ea33d7f290a5edd6))
+- Sync install.sh signing key, gate drift in CI, close installer-script integrity gap (#31) ([`d4a01d5`](https://github.com/Elysium-Labs-EU/themis/commit/d4a01d574eb65be287762a1ebbe663ba9440b4ca))
+- Themis-fix-issue-32 (#32) (#33) ([`57a15eb`](https://github.com/Elysium-Labs-EU/themis/commit/57a15eb9b6b2ebc76a274774fd1bf3c609b8ae52))
+- Themis-fix-issue-3 (#3) (#34) ([`7ce7dc1`](https://github.com/Elysium-Labs-EU/themis/commit/7ce7dc1cdefd6f87f07ff819bef5219c966eebf9))
+- Themis-fix-issue-4 (#4) (#35) ([`7b9bdbd`](https://github.com/Elysium-Labs-EU/themis/commit/7b9bdbd0a62c1035d1c06084ad4e0771ca07c987))
+- Fix-issue-55 (#55) (#56) ([`5db1bf5`](https://github.com/Elysium-Labs-EU/themis/commit/5db1bf5ca9c976c09e9d6aa9dd3945dbc4c66015))
+- Fix-issue-50 (#50) (#57) ([`3d3c3c7`](https://github.com/Elysium-Labs-EU/themis/commit/3d3c3c74bcceaeb7bfde69f390d8057e418357e5))
+- Fix-issue-26 (#26) (#58) ([`6d7d3e0`](https://github.com/Elysium-Labs-EU/themis/commit/6d7d3e0acebad19b0ff8fce17dad43b9c711e23f))
+- Untrack .claude/argus/ control files from main, gitignore them (#59) ([`c323905`](https://github.com/Elysium-Labs-EU/themis/commit/c323905308647670107872f4d0fba9e0cc6c7d00))
+
+## [0.0.3-rc.1] - 2026-07-20
+
+### Bug Fixes
+- Git-cliff can't resolve version tag on workflow_dispatch runs ([`d6f685f`](https://github.com/Elysium-Labs-EU/themis/commit/d6f685f808152b8d171e8b5f94c233b43cac9d2f))
+
+
+### Maintenance
+- Rotate release-signing public key ([`240476b`](https://github.com/Elysium-Labs-EU/themis/commit/240476bef7caac9c7cd58dc14abc5b41ff639521))
+
+## [0.0.2] - 2026-07-19
+
+### Bug Fixes
+- Resolve external commands from trusted dirs, not $PATH ([`d80b568`](https://github.com/Elysium-Labs-EU/themis/commit/d80b56824168d514200adbf3d50689b9262dea63))
+- Verify state.json integrity on load ([`1ebe2c9`](https://github.com/Elysium-Labs-EU/themis/commit/1ebe2c9787228f0640fac711d130f2c564d6b397))
+
+
+### CI/CD
+- Make go-crap gate change-scoped to PR churn ([`cc979fb`](https://github.com/Elysium-Labs-EU/themis/commit/cc979fbeb7425acb243d25c24f1ac772153ce910))
+- Run Go jobs in container with named-volume caches ([`49a1e48`](https://github.com/Elysium-Labs-EU/themis/commit/49a1e48fec933d96789c06ee144b5a89a89bae55))
+- Drop dead permissions field from Forgejo workflows ([`fece221`](https://github.com/Elysium-Labs-EU/themis/commit/fece221390a25c4b2c06eb11b5bba9e1d94cae4f))
+- Add Integration Test job ([`4151729`](https://github.com/Elysium-Labs-EU/themis/commit/4151729794b6dc155e7617c0d791b30ce1789635))
+- Keep Integration Test job green on the shared runner ([`0c14356`](https://github.com/Elysium-Labs-EU/themis/commit/0c14356a451e2982e06b28608ce2fc114dc06b3c))
+- Tune OSV scan (deps-only PRs + weekly cron, prebuilt scanner) ([`e01002e`](https://github.com/Elysium-Labs-EU/themis/commit/e01002e43e372a32d8d9ba4942a5936042791809))
+
+
+### Features
+- Verify update signatures with soft-fail fallback ([`1b12ab2`](https://github.com/Elysium-Labs-EU/themis/commit/1b12ab2340be93f7f26666d2c54dfd0e8c0933c4))
+
+
+### Maintenance
+- Remove dead GitHub-Actions-only permissions block from workflows ([`1fb70b4`](https://github.com/Elysium-Labs-EU/themis/commit/1fb70b4d4c8757acc764a1f333da4b46332ef840))
+- Add go-crap as a hard-blocking CI/local gate ([`64fc517`](https://github.com/Elysium-Labs-EU/themis/commit/64fc5170048c4ea2857438bb094136398c0703f2))
+- Run go-crap gate on pre-push, not pre-commit ([`876393c`](https://github.com/Elysium-Labs-EU/themis/commit/876393cd286e2c68f64bc57b8b30dfa353f0738a))
+- Exclude cobra command builders from the gate ([`d39dd08`](https://github.com/Elysium-Labs-EU/themis/commit/d39dd08eae73fd4b07dbdf9ff2b1b2b16f2a8313))
+
+
+### Miscellaneous
+- Add integration + smoke-update make targets ([`a947f3d`](https://github.com/Elysium-Labs-EU/themis/commit/a947f3dab243e6e8952748d8eba92bf08c7b533f))
+- Stage release download in a private mktemp dir ([`1db51a8`](https://github.com/Elysium-Labs-EU/themis/commit/1db51a8ec93e0a1a275da669e5a6884311d71151))
+- Migrate from Codeberg to GitHub
+
+- Rename Go module path codeberg.org/Elysium_Labs/themis -> github.com/Elysium-Labs-EU/themis (all imports, go.mod, Makefile)
+- Replace .forgejo Woodpecker/Gitea workflows with GitHub Actions (ci, golangci-lint, osv-scan, release); ubuntu-latest runners
+- Rewrite release.yml to publish via softprops/action-gh-release with GITHUB_TOKEN; keep the ECDSA sha256sums.txt signing step
+- Repoint install.sh + cmd/update.go at github.com / api.github.com; add required User-Agent header for the GitHub API; tolerate spaced JSON; keep embedded release-signing public key
+- Retarget update tests to the github.com download host
+- Update README badge/links, cliff.toml, CHANGELOG commit links; add logo ([`38ae8bf`](https://github.com/Elysium-Labs-EU/themis/commit/38ae8bf15edc92cb6d456dc15103c0fe60665952))
+
+
+### Refactoring
+- Extract fail2ban/autoupdates/firewall Check-Apply-Revert helpers ([`734a2a9`](https://github.com/Elysium-Labs-EU/themis/commit/734a2a9035e12da2ea3e01698677e85ad99c8690))
+- Split runUpdate and downloadFile into helpers ([`00429d8`](https://github.com/Elysium-Labs-EU/themis/commit/00429d8b05f28f3949f714321004181ed93715fb))
+- Extract report-printing and lynis-run helpers ([`6e34d39`](https://github.com/Elysium-Labs-EU/themis/commit/6e34d39477857aec41ce27268d5da1417d2461d5))
+
+
+### Testing
+- Add real lynis audit integration test ([`c7d5131`](https://github.com/Elysium-Labs-EU/themis/commit/c7d51315bb877816a30e8e23944bd8aedb51c67c))
+- Add apply/revert integration tests for host-mutating fixes ([`a542be3`](https://github.com/Elysium-Labs-EU/themis/commit/a542be3ad358e41ff8c2ab11af92f682737609c9))
+- Add hermetic end-to-end self-update integration test ([`9aadbe7`](https://github.com/Elysium-Labs-EU/themis/commit/9aadbe754cbdeb89cc8383e24bb44c9d3f066c7d))
+- Gate host-mutating fix tests behind THEMIS_INTEGRATION_MUTATE ([`6696944`](https://github.com/Elysium-Labs-EU/themis/commit/6696944ebe18a591a66c2ab468d34c9f12b44d8c))
+
 ## [0.0.1] - 2026-07-16
 
 ### Bug Fixes
