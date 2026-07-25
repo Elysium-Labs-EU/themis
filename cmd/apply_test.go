@@ -200,6 +200,80 @@ func TestApplyDoesNotRecordEntryWhenApplyFailsCleanly(t *testing.T) {
 	}
 }
 
+// TestApplyMergesWithExistingStateInsteadOfOverwriting is the regression
+// test for the state-overwrite bug: a second `apply` run must merge its
+// new entries into whatever state.json already held, not replace the file
+// wholesale and silently lose an earlier run's rollback data.
+func TestApplyMergesWithExistingStateInsteadOfOverwriting(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	if err := state.Save(statePath, state.Snapshot{
+		Entries: []state.Entry{{TestID: "OLD-FIX", RevertData: []byte("old")}},
+	}); err != nil {
+		t.Fatalf("Save (seed earlier run's state): %v", err)
+	}
+
+	withRegistry(t, map[string]fix.Fix{
+		"NEW-FIX": unsatisfiedFix("NEW-FIX", "second run's fix", func() ([]byte, error) {
+			return []byte("new"), nil
+		}),
+	})
+
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+
+	snap, err := state.Load(statePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(snap.Entries) != 2 || snap.Entries[0].TestID != "OLD-FIX" || snap.Entries[1].TestID != "NEW-FIX" {
+		t.Fatalf("entries after merge = %+v, want [OLD-FIX NEW-FIX]", snap.Entries)
+	}
+}
+
+// TestApplyUpdatesExistingEntryForSameTestID covers reapplying a fix whose
+// TestID is already recorded (e.g. drift was detected again): the entry
+// must be updated in place with the new revert data, not duplicated.
+func TestApplyUpdatesExistingEntryForSameTestID(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	if err := state.Save(statePath, state.Snapshot{
+		Entries: []state.Entry{{TestID: "A-FIX", RevertData: []byte("stale")}},
+	}); err != nil {
+		t.Fatalf("Save (seed earlier run's state): %v", err)
+	}
+
+	withRegistry(t, map[string]fix.Fix{
+		"A-FIX": unsatisfiedFix("A-FIX", "reapplied fix", func() ([]byte, error) {
+			return []byte("fresh"), nil
+		}),
+	})
+
+	buf := &bytes.Buffer{}
+	cmd := applyCmd
+	cmd.SetOut(buf)
+	defer cmd.SetOut(nil)
+
+	if err := runApply(cmd, statePath); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+
+	snap, err := state.Load(statePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(snap.Entries) != 1 {
+		t.Fatalf("entries after reapply = %+v, want exactly 1 (updated in place)", snap.Entries)
+	}
+	if string(snap.Entries[0].RevertData) != "fresh" {
+		t.Fatalf("RevertData = %q, want %q", snap.Entries[0].RevertData, "fresh")
+	}
+}
+
 func TestApplyNothingToApplySkipsSave(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 

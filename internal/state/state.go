@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 )
@@ -128,4 +129,40 @@ func Clear(path string) error {
 		return fmt.Errorf("removing state %s: %w", path, err)
 	}
 	return nil
+}
+
+// LoadOrEmpty behaves like Load, but treats a missing file at path as a
+// zero Snapshot rather than an error — for callers where "apply has never
+// run" is a valid starting point, not a failure.
+func LoadOrEmpty(path string) (Snapshot, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return Snapshot{}, nil
+	}
+	return Load(path)
+}
+
+// Upsert returns entries with entry placed by TestID: replacing an
+// existing entry that shares its TestID in place, or appended if none
+// does. Pure — entries is not mutated.
+func Upsert(entries []Entry, entry Entry) []Entry {
+	updated := slices.Clone(entries)
+	for i, e := range updated {
+		if e.TestID == entry.TestID {
+			updated[i] = entry
+			return updated
+		}
+	}
+	return append(updated, entry)
+}
+
+// Remove returns entries with any entry whose TestID matches testID
+// dropped. Pure — entries is not mutated.
+func Remove(entries []Entry, testID string) []Entry {
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.TestID != testID {
+			out = append(out, e)
+		}
+	}
+	return out
 }
