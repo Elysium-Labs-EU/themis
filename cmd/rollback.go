@@ -18,6 +18,9 @@ var rollbackCmd = &cobra.Command{
 	Long:  "Revert fixes applied by `themis apply`. With no argument, reverts every recorded fix (LIFO order) and clears the rollback state. With a TEST-ID, reverts only that fix and rewrites the rollback state with the remaining entries.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireRoot("rollback", "revert fixes applied to system files and services"); err != nil {
+			return err
+		}
 		if len(args) == 1 {
 			return runRollbackOne(cmd, state.DefaultPath, args[0], rollbackForce)
 		}
