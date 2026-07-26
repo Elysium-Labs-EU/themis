@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -189,4 +191,182 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parsing config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// dirPerm/filePerm are the modes Save creates the config dir and file
+// with: world-readable, since the operator config holds no secrets (just
+// which sources run and their options) and other tooling stats it.
+const (
+	dirPerm  os.FileMode = 0o755
+	filePerm os.FileMode = 0o644
+)
+
+// Save writes cfg to path as YAML, creating the parent directory if it
+// doesn't exist. It marshals the whole Config, so a file created from
+// Defaults() by the first Set lands complete rather than sparse. The
+// effect boundary for the pure Get/Set below — those never touch disk.
+func Save(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return fmt.Errorf("creating config dir %s: %w", dir, err)
+	}
+	if err := os.WriteFile(path, data, filePerm); err != nil {
+		return fmt.Errorf("writing config %s: %w", path, err)
+	}
+	return nil
+}
+
+// keyField binds one dotted config key (e.g. "sources.lynis.enabled") to
+// how it is read from and written into a Config. get renders the current
+// value as the string the CLI prints; set parses a string into the typed
+// field and returns the updated Config, or an error if the value doesn't
+// fit the field's type. Both are pure — no I/O, value in / value out.
+type keyField struct {
+	get func(Config) string
+	set func(Config, string) (Config, error)
+}
+
+// keyRegistry is the single source of truth for the config key namespace:
+// every operator-settable key, its getter, and its typed setter. `themis
+// config get/set` and any future wizard resolve keys through this one map,
+// so a new field is one entry here rather than a parallel edit in each
+// caller. A key absent from this map is, by definition, unknown — that is
+// what makes `set sources.bogus.enabled` fail fast instead of silently
+// writing a field nothing reads.
+func keyRegistry() map[string]keyField {
+	return map[string]keyField{
+		"sources.lynis.enabled": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.Lynis.Enabled) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.Lynis.Enabled = b
+				return c, nil
+			},
+		},
+		"sources.lynis.quick": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.Lynis.Quick) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.Lynis.Quick = b
+				return c, nil
+			},
+		},
+		"sources.lynis.skip_unchanged": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.Lynis.SkipUnchanged) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.Lynis.SkipUnchanged = b
+				return c, nil
+			},
+		},
+		"sources.native.enabled": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.Native.Enabled) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.Native.Enabled = b
+				return c, nil
+			},
+		},
+		"sources.osquery.enabled": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.Osquery.Enabled) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.Osquery.Enabled = b
+				return c, nil
+			},
+		},
+		"sources.openscap.enabled": {
+			get: func(c Config) string { return strconv.FormatBool(c.Sources.OpenSCAP.Enabled) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Sources.OpenSCAP.Enabled = b
+				return c, nil
+			},
+		},
+		"sources.openscap.content": {
+			get: func(c Config) string { return c.Sources.OpenSCAP.Content },
+			set: func(c Config, v string) (Config, error) {
+				c.Sources.OpenSCAP.Content = v
+				return c, nil
+			},
+		},
+		"sources.openscap.profile": {
+			get: func(c Config) string { return c.Sources.OpenSCAP.Profile },
+			set: func(c Config, v string) (Config, error) {
+				c.Sources.OpenSCAP.Profile = v
+				return c, nil
+			},
+		},
+	}
+}
+
+// Keys returns every known config key, sorted — for error messages and
+// help text that enumerate the namespace.
+func Keys() []string {
+	reg := keyRegistry()
+	keys := make([]string, 0, len(reg))
+	for k := range reg {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Get returns the current value of key in cfg as a string, or an error if
+// key is not part of the namespace.
+func Get(cfg Config, key string) (string, error) {
+	f, ok := keyRegistry()[key]
+	if !ok {
+		return "", unknownKeyError(key)
+	}
+	return f.get(cfg), nil
+}
+
+// Set returns cfg with key updated to value, or an error if key is
+// unknown or value doesn't parse for the field's type. Pure — the caller
+// persists the result with Save.
+func Set(cfg Config, key, value string) (Config, error) {
+	f, ok := keyRegistry()[key]
+	if !ok {
+		return Config{}, unknownKeyError(key)
+	}
+	return f.set(cfg, value)
+}
+
+// parseBool accepts the same spellings strconv.ParseBool does (true/false,
+// 1/0, t/f), rewrapping the error so a bad value names what was expected.
+func parseBool(v string) (bool, error) {
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid boolean %q: want true or false", v)
+	}
+	return b, nil
+}
+
+// unknownKeyError reports an unrecognized config key, listing the valid
+// keys so a typo is corrected on the spot rather than guessed at.
+func unknownKeyError(key string) error {
+	return fmt.Errorf("unknown config key %q; valid keys: %s", key, strings.Join(Keys(), ", "))
 }

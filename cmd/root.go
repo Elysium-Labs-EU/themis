@@ -38,6 +38,7 @@ func init() {
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(rollbackCmd)
 	rootCmd.AddCommand(apiCmd)
+	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(systemCmd)
 	rootCmd.AddCommand(newCompletionCmd(rootCmd))
 }

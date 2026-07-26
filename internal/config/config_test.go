@@ -96,6 +96,105 @@ func TestLoadRejectsMalformedYAML(t *testing.T) {
 	}
 }
 
+func TestGetRendersTypedFieldsAsStrings(t *testing.T) {
+	cfg := Config{
+		Sources: SourcesConfig{
+			Lynis:    LynisConfig{Enabled: true, Quick: false, SkipUnchanged: true},
+			Native:   NativeConfig{Enabled: false},
+			Osquery:  OsqueryConfig{Enabled: true},
+			OpenSCAP: OpenSCAPConfig{Enabled: true, Content: "/opt/ssg.xml", Profile: "cis"},
+		},
+	}
+	cases := map[string]string{
+		"sources.lynis.enabled":        "true",
+		"sources.lynis.quick":          "false",
+		"sources.lynis.skip_unchanged": "true",
+		"sources.native.enabled":       "false",
+		"sources.osquery.enabled":      "true",
+		"sources.openscap.enabled":     "true",
+		"sources.openscap.content":     "/opt/ssg.xml",
+		"sources.openscap.profile":     "cis",
+	}
+	for key, want := range cases {
+		got, err := Get(cfg, key)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", key, err)
+		}
+		if got != want {
+			t.Errorf("Get(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestGetRejectsUnknownKey(t *testing.T) {
+	if _, err := Get(Defaults(), "sources.bogus.enabled"); err == nil {
+		t.Fatal("expected an error for an unknown key")
+	}
+}
+
+func TestKeysCoversEveryGettableField(t *testing.T) {
+	// Keys() and Get must agree: every advertised key must resolve.
+	for _, key := range Keys() {
+		if _, err := Get(Defaults(), key); err != nil {
+			t.Errorf("Keys() advertises %q but Get rejects it: %v", key, err)
+		}
+	}
+}
+
+func TestSetUpdatesOnlyTheTargetedField(t *testing.T) {
+	got, err := Set(Defaults(), "sources.lynis.enabled", "false")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got.Sources.Lynis.Enabled {
+		t.Error("expected sources.lynis.enabled to be set false")
+	}
+	// Every other field keeps its default.
+	if !got.Sources.Native.Enabled || !got.Sources.Osquery.Enabled {
+		t.Error("Set changed a field other than its target")
+	}
+}
+
+func TestSetParsesStringField(t *testing.T) {
+	got, err := Set(Defaults(), "sources.openscap.content", "/opt/ssg.xml")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got.Sources.OpenSCAP.Content != "/opt/ssg.xml" {
+		t.Errorf("content = %q, want /opt/ssg.xml", got.Sources.OpenSCAP.Content)
+	}
+}
+
+func TestSetRejectsUnknownKey(t *testing.T) {
+	if _, err := Set(Defaults(), "sources.bogus.enabled", "true"); err == nil {
+		t.Fatal("expected an error for an unknown key")
+	}
+}
+
+func TestSetRejectsNonBooleanForBoolField(t *testing.T) {
+	if _, err := Set(Defaults(), "sources.lynis.enabled", "yesplease"); err == nil {
+		t.Fatal("expected an error for a non-boolean value on a bool field")
+	}
+}
+
+func TestSaveThenLoadRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "config.yaml")
+	cfg, err := Set(Defaults(), "sources.lynis.enabled", "false")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if saveErr := Save(path, cfg); saveErr != nil {
+		t.Fatalf("Save: %v", saveErr)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got != cfg {
+		t.Fatalf("round-trip: Load = %+v, want %+v", got, cfg)
+	}
+}
+
 func TestPathHonorsEnvVarOverride(t *testing.T) {
 	t.Setenv(EnvVar, "/custom/config.yaml")
 	if got := Path(); got != "/custom/config.yaml" {
