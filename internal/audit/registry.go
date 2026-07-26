@@ -15,9 +15,11 @@ var ErrSourceNotEnabled = errors.New("audit: source not enabled for this config"
 
 // SourceConfig carries the per-source options a factory needs to
 // construct its Source, so the command layer can build the enabled set
-// without knowing any source's internals. Zero value is the default
-// full audit: lynis runs a full (non-quick) scan, openscap stays out
-// (no content path), osquery uses its default state path.
+// without knowing any source's internals. The command layer is
+// responsible for resolving each Enabled field (from the operator config
+// file and any CLI flag override) before calling Enabled — a zero-value
+// SourceConfig enables nothing, since every source but openscap gates on
+// its own Enabled field.
 //
 // Fields are ordered pointer-bearing (strings) first so the struct packs
 // tightly (govet fieldalignment).
@@ -38,6 +40,15 @@ type SourceConfig struct {
 	// LynisSkipUnchanged skips the lynis scan and reuses the last report
 	// when nothing lynis cares about has changed since.
 	LynisSkipUnchanged bool
+	// LynisEnabled gates whether lynis runs at all. false makes its
+	// factory return ErrSourceNotEnabled.
+	LynisEnabled bool
+	// NativeEnabled gates whether the themis-native source runs at all.
+	// false makes its factory return ErrSourceNotEnabled.
+	NativeEnabled bool
+	// OsqueryEnabled gates whether the osquery drift-detection source
+	// runs at all. false makes its factory return ErrSourceNotEnabled.
+	OsqueryEnabled bool
 }
 
 // Factory constructs a Source from a SourceConfig. Returning

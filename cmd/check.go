@@ -7,6 +7,7 @@ import (
 
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
 	"github.com/Elysium-Labs-EU/themis/internal/checkreport"
+	"github.com/Elysium-Labs-EU/themis/internal/config"
 	// Blank imports register each audit source in the audit registry via
 	// its package init(). themis check, themis api check, and any future
 	// caller build the enabled set by name through audit.Enabled rather
@@ -20,16 +21,86 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// checkSourceConfig maps the audit-related CLI flags onto the per-source
-// options audit.Enabled needs to build the enabled set. Which sources
-// actually run — and in what order — lives in the registry (each source's
-// package init), not here: osquery always runs (it no-ops without prior
-// apply state or an osqueryi binary), and openscap only runs when
-// scapContent is set. Pure — no I/O.
-func checkSourceConfig(quick, skipUnchanged bool, scapContent, scapProfile string) audit.SourceConfig {
+// checkFlags is the resolved state of check's (and api check's)
+// audit-related CLI flags: each value plus whether it was explicitly
+// passed. Read once at the command boundary via readCheckFlags so
+// checkSourceConfig itself stays pure.
+type checkFlags struct {
+	ScapContent      string
+	ScapProfile      string
+	Quick            bool
+	QuickSet         bool
+	SkipUnchanged    bool
+	SkipUnchangedSet bool
+	ScapContentSet   bool
+	ScapProfileSet   bool
+}
+
+// readCheckFlags reads cmd's quick/skip-unchanged/scap-content/scap-profile
+// flags, recording both value and whether the caller actually passed it —
+// I/O boundary for checkSourceConfig, which stays pure.
+func readCheckFlags(cmd *cobra.Command) checkFlags {
+	quick, _ := cmd.Flags().GetBool("quick")
+	skipUnchanged, _ := cmd.Flags().GetBool("skip-unchanged")
+	scapContent, _ := cmd.Flags().GetString("scap-content")
+	scapProfile, _ := cmd.Flags().GetString("scap-profile")
+	return checkFlags{
+		Quick:            quick,
+		QuickSet:         cmd.Flags().Changed("quick"),
+		SkipUnchanged:    skipUnchanged,
+		SkipUnchangedSet: cmd.Flags().Changed("skip-unchanged"),
+		ScapContent:      scapContent,
+		ScapContentSet:   cmd.Flags().Changed("scap-content"),
+		ScapProfile:      scapProfile,
+		ScapProfileSet:   cmd.Flags().Changed("scap-profile"),
+	}
+}
+
+// loadOperatorConfig reads themis's operator config file (defaults if
+// none is present) from its resolved location — THEMIS_CONFIG, else
+// /etc/themis/config.yaml for root, else ~/.themis/config.yaml.
+func loadOperatorConfig() (config.Config, error) {
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		return config.Config{}, fmt.Errorf("loading operator config: %w", err)
+	}
+	return cfg, nil
+}
+
+// checkSourceConfig merges the operator config file with CLI flag
+// overrides into the audit.SourceConfig audit.Enabled needs, honoring
+// defaults < file < flags: a flag wins wherever it was explicitly passed
+// (flags.XSet), otherwise cfg's (already-defaulted) value applies. Which
+// sources actually run — and in what order — lives in the registry (each
+// source's package init), not here. Pure — no I/O.
+func checkSourceConfig(cfg config.Config, flags checkFlags) audit.SourceConfig {
+	quick := cfg.Sources.Lynis.Quick
+	if flags.QuickSet {
+		quick = flags.Quick
+	}
+	skipUnchanged := cfg.Sources.Lynis.SkipUnchanged
+	if flags.SkipUnchangedSet {
+		skipUnchanged = flags.SkipUnchanged
+	}
+
+	scapContent := ""
+	if cfg.Sources.OpenSCAP.Enabled {
+		scapContent = cfg.Sources.OpenSCAP.Content
+	}
+	if flags.ScapContentSet {
+		scapContent = flags.ScapContent
+	}
+	scapProfile := cfg.Sources.OpenSCAP.Profile
+	if flags.ScapProfileSet {
+		scapProfile = flags.ScapProfile
+	}
+
 	return audit.SourceConfig{
+		LynisEnabled:        cfg.Sources.Lynis.Enabled,
 		LynisQuick:          quick,
 		LynisSkipUnchanged:  skipUnchanged,
+		NativeEnabled:       cfg.Sources.Native.Enabled,
+		OsqueryEnabled:      cfg.Sources.Osquery.Enabled,
 		OpenSCAPContentPath: scapContent,
 		OpenSCAPProfile:     scapProfile,
 	}
@@ -37,18 +108,19 @@ func checkSourceConfig(quick, skipUnchanged bool, scapContent, scapProfile strin
 
 func newCheckCmd() *cobra.Command {
 	var showAll bool
-	var quick bool
-	var scapContent string
-	var scapProfile string
-	var skipUnchanged bool
 
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Run an audit and list actionable findings",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			opCfg, err := loadOperatorConfig()
+			if err != nil {
+				return err
+			}
 			var findings []audit.Finding
-			err := ui.WithSpinner("Running audit...", func() error {
-				srcs, err := audit.Enabled(checkSourceConfig(quick, skipUnchanged, scapContent, scapProfile))
+			err = ui.WithSpinner("Running audit...", func() error {
+				var srcs []audit.Source
+				srcs, err = audit.Enabled(checkSourceConfig(opCfg, readCheckFlags(cmd)))
 				if err != nil {
 					return err
 				}
@@ -69,10 +141,10 @@ func newCheckCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&showAll, "all", false, "also show findings with no themis fix and no source solution hint")
-	cmd.Flags().BoolVar(&quick, "quick", false, "run lynis's lighter --quick profile instead of a full audit")
-	cmd.Flags().StringVar(&scapContent, "scap-content", "", "path to a SCAP/XCCDF datastream (e.g. oscap-ssg content); also runs OpenSCAP when set")
-	cmd.Flags().StringVar(&scapProfile, "scap-profile", "", "XCCDF profile ID to evaluate (default: the datastream's own default profile)")
-	cmd.Flags().BoolVar(&skipUnchanged, "skip-unchanged", false, "skip the lynis scan and reuse the last report if nothing lynis cares about (config files, package list) has changed since")
+	cmd.Flags().Bool("quick", false, "run lynis's lighter --quick profile instead of a full audit")
+	cmd.Flags().String("scap-content", "", "path to a SCAP/XCCDF datastream (e.g. oscap-ssg content); also runs OpenSCAP when set")
+	cmd.Flags().String("scap-profile", "", "XCCDF profile ID to evaluate (default: the datastream's own default profile)")
+	cmd.Flags().Bool("skip-unchanged", false, "skip the lynis scan and reuse the last report if nothing lynis cares about (config files, package list) has changed since")
 	return cmd
 }
 
