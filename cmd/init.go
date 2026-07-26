@@ -19,7 +19,7 @@ import (
 // content/profile) are asked only when the operator enables that source.
 // I/O boundary: it reads from reader and writes prompts to out; the merge
 // itself is a straight-line build of a config.Config value.
-func promptConfig(reader *bufio.Reader, out io.Writer, def config.Config) config.Config {
+func promptConfig(reader *bufio.Reader, out io.Writer, def config.Config) config.Config { //nolint:gocritic // STYLE.md mandates value semantics for config/data; config.Config crossed hugeParam's 80-byte bound only when the schedule block was added — kept by value, not pointer-converted
 	cfg := def
 
 	cfg.Sources.Lynis.Enabled = ui.Confirm(reader, out, "Enable the Lynis source?", def.Sources.Lynis.Enabled)

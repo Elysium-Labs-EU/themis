@@ -26,7 +26,7 @@ func enabledNames(t *testing.T, cfg audit.SourceConfig) []string {
 // appended only when a SCAP content path is configured. This is what
 // keeps `themis check` output identical after moving to the registry.
 func TestEnabledSourcesMatchHistoricalOrder(t *testing.T) {
-	got := enabledNames(t, checkSourceConfig(config.Defaults(), checkFlags{}))
+	got := enabledNames(t, checkSourceConfig(config.Defaults().Sources, checkFlags{}))
 	want := []string{"lynis", "themis", "osquery"}
 	if !equalStrings(got, want) {
 		t.Fatalf("default enabled sources = %v, want %v", got, want)
@@ -35,7 +35,7 @@ func TestEnabledSourcesMatchHistoricalOrder(t *testing.T) {
 	withContent := config.Defaults()
 	withContent.Sources.OpenSCAP.Enabled = true
 	withContent.Sources.OpenSCAP.Content = "/content.xml"
-	got = enabledNames(t, checkSourceConfig(withContent, checkFlags{}))
+	got = enabledNames(t, checkSourceConfig(withContent.Sources, checkFlags{}))
 	want = []string{"lynis", "themis", "osquery", "openscap"}
 	if !equalStrings(got, want) {
 		t.Fatalf("enabled sources with SCAP content = %v, want %v", got, want)
@@ -50,7 +50,7 @@ func TestConfigLynisDisabledDropsLynisEvenWithNoFlags(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Sources.Lynis.Enabled = false
 
-	got := enabledNames(t, checkSourceConfig(cfg, checkFlags{}))
+	got := enabledNames(t, checkSourceConfig(cfg.Sources, checkFlags{}))
 	want := []string{"themis", "osquery"}
 	if !equalStrings(got, want) {
 		t.Fatalf("enabled sources with lynis disabled = %v, want %v", got, want)
@@ -64,7 +64,7 @@ func TestQuickFlagOverridesConfigFileQuick(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Sources.Lynis.Quick = false
 
-	got := checkSourceConfig(cfg, checkFlags{Quick: true, QuickSet: true})
+	got := checkSourceConfig(cfg.Sources, checkFlags{Quick: true, QuickSet: true})
 	if !got.LynisQuick {
 		t.Fatal("expected --quick to override sources.lynis.quick: false from the config file")
 	}
@@ -77,7 +77,7 @@ func TestConfigFileQuickAppliesWithNoFlag(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Sources.Lynis.Quick = true
 
-	got := checkSourceConfig(cfg, checkFlags{})
+	got := checkSourceConfig(cfg.Sources, checkFlags{})
 	if !got.LynisQuick {
 		t.Fatal("expected sources.lynis.quick: true from the config file to apply with no --quick flag")
 	}

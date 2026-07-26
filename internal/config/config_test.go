@@ -63,6 +63,10 @@ func TestLoadFullFileOverridesEveryField(t *testing.T) {
   native:   { enabled: false }
   osquery:  { enabled: false }
   openscap: { enabled: true, content: "/opt/ssg-content.xml", profile: "xccdf_org.ssgproject.content_profile_cis" }
+schedule:
+  enabled: true
+  interval: weekly
+  command: apply
 `
 	if err := os.WriteFile(path, []byte(yamlBody), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -79,9 +83,27 @@ func TestLoadFullFileOverridesEveryField(t *testing.T) {
 			Osquery:  OsqueryConfig{Enabled: false},
 			OpenSCAP: OpenSCAPConfig{Enabled: true, Content: "/opt/ssg-content.xml", Profile: "xccdf_org.ssgproject.content_profile_cis"},
 		},
+		Schedule: ScheduleConfig{Enabled: true, Interval: "weekly", Command: "apply"},
 	}
 	if got != want {
 		t.Fatalf("Load = %+v, want %+v", got, want)
+	}
+}
+
+func TestLoadKeepsScheduleDefaultsWhenOmitted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yamlBody := "sources:\n  lynis:\n    enabled: false\n"
+	if err := os.WriteFile(path, []byte(yamlBody), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := ScheduleConfig{Interval: "daily", Command: "check", Enabled: false}
+	if got.Schedule != want {
+		t.Fatalf("Load schedule = %+v, want defaults %+v", got.Schedule, want)
 	}
 }
 
@@ -123,6 +145,37 @@ func TestGetRendersTypedFieldsAsStrings(t *testing.T) {
 		if got != want {
 			t.Errorf("Get(%q) = %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestScheduleKeysAreGettableAndSettable(t *testing.T) {
+	cfg, err := Set(Defaults(), "schedule.enabled", "true")
+	if err != nil {
+		t.Fatalf("Set schedule.enabled: %v", err)
+	}
+	cfg, err = Set(cfg, "schedule.interval", "weekly")
+	if err != nil {
+		t.Fatalf("Set schedule.interval: %v", err)
+	}
+	cfg, err = Set(cfg, "schedule.command", "apply")
+	if err != nil {
+		t.Fatalf("Set schedule.command: %v", err)
+	}
+	for key, want := range map[string]string{
+		"schedule.enabled":  "true",
+		"schedule.interval": "weekly",
+		"schedule.command":  "apply",
+	} {
+		got, getErr := Get(cfg, key)
+		if getErr != nil {
+			t.Fatalf("Get(%q): %v", key, getErr)
+		}
+		if got != want {
+			t.Errorf("Get(%q) = %q, want %q", key, got, want)
+		}
+	}
+	if _, err := Set(Defaults(), "schedule.enabled", "notabool"); err == nil {
+		t.Error("expected an error setting schedule.enabled to a non-boolean")
 	}
 }
 
@@ -228,6 +281,10 @@ func TestRenderRoundTripsThroughLoad(t *testing.T) {
 				Osquery:  OsqueryConfig{Enabled: false},
 				OpenSCAP: OpenSCAPConfig{Enabled: true, Content: "/opt/ssg-content.xml", Profile: "xccdf_org.ssgproject.content_profile_cis"},
 			},
+		},
+		"schedule enabled, weekly apply": {
+			Sources:  Defaults().Sources,
+			Schedule: ScheduleConfig{Enabled: true, Interval: "weekly", Command: "apply"},
 		},
 	}
 	for name, cfg := range cases {

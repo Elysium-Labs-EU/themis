@@ -30,9 +30,25 @@ const rootConfigPath = "/etc/themis/config.yaml"
 // non-root install, relative to the user's home directory.
 const userConfigRelPath = ".themis/config.yaml"
 
-// Config is themis's persisted operator configuration.
+// Config is themis's persisted operator configuration. (Schedule leads
+// Sources only to satisfy govet's fieldalignment — the trailing bools in
+// SourcesConfig otherwise widen the GC pointer-scan region; field order
+// carries no semantic weight.)
 type Config struct {
-	Sources SourcesConfig `yaml:"sources"`
+	Schedule ScheduleConfig `yaml:"schedule"`
+	Sources  SourcesConfig  `yaml:"sources"`
+}
+
+// ScheduleConfig is the operator-configurable state of the OS-native
+// recurring scan themis installs via `themis schedule enable`. Interval
+// is "daily", "weekly", or a raw systemd OnCalendar expression (only
+// daily/weekly translate to launchd/cron); Command is "check" or "apply".
+// Enabled records intent — it does not itself install the unit; `themis
+// schedule enable` does that and `disable` removes it.
+type ScheduleConfig struct {
+	Interval string `yaml:"interval"`
+	Command  string `yaml:"command"`
+	Enabled  bool   `yaml:"enabled"`
 }
 
 // SourcesConfig is the enabled/options state of every audit source
@@ -83,6 +99,11 @@ func Defaults() Config {
 			Osquery:  OsqueryConfig{Enabled: true},
 			OpenSCAP: OpenSCAPConfig{Enabled: false},
 		},
+		Schedule: ScheduleConfig{
+			Interval: "daily",
+			Command:  "check",
+			Enabled:  false,
+		},
 	}
 }
 
@@ -131,8 +152,9 @@ func yamlString(s string) string {
 // — `themis init` writes it verbatim, so keep the keys and comments here
 // in sync with the yaml tags Load unmarshals into. The output round-trips:
 // Load(Render(cfg)) == cfg. Pure — no I/O.
-func Render(cfg Config) string {
+func Render(cfg Config) string { //nolint:gocritic // STYLE.md mandates value semantics for config/data; Config crossed hugeParam's 80-byte bound only when the schedule block was added — kept by value, not pointer-converted
 	s := cfg.Sources
+	sc := cfg.Schedule
 	return fmt.Sprintf(`# themis operator configuration
 #
 # Sets defaults for which audit sources run and their per-source options,
@@ -162,6 +184,13 @@ sources:
     enabled: %s
     content: %s # path to a SCAP/XCCDF datastream (e.g. ssg-debian content); required when enabled
     profile: %s # XCCDF profile ID to evaluate; empty uses the datastream's own default profile
+# schedule: an OS-native recurring scan (systemd timer, launchd agent, or
+# cron entry). This block records intent and the parameters; installing or
+# removing the unit is done with 'themis schedule enable' / 'disable'.
+schedule:
+  enabled: %s
+  interval: %s # daily | weekly | a raw systemd OnCalendar expression (daily/weekly also map to launchd/cron)
+  command: %s  # check | apply — the themis subcommand each scheduled run invokes
 `,
 		yamlBool(s.Lynis.Enabled),
 		yamlBool(s.Lynis.Quick),
@@ -171,6 +200,9 @@ sources:
 		yamlBool(s.OpenSCAP.Enabled),
 		yamlString(s.OpenSCAP.Content),
 		yamlString(s.OpenSCAP.Profile),
+		yamlBool(sc.Enabled),
+		yamlString(sc.Interval),
+		yamlString(sc.Command),
 	)
 }
 
@@ -205,7 +237,7 @@ const (
 // doesn't exist. It marshals the whole Config, so a file created from
 // Defaults() by the first Set lands complete rather than sparse. The
 // effect boundary for the pure Get/Set below — those never touch disk.
-func Save(path string, cfg Config) error {
+func Save(path string, cfg Config) error { //nolint:gocritic // STYLE.md mandates value semantics for config/data; Config crossed hugeParam's 80-byte bound only when the schedule block was added — kept by value, not pointer-converted
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
@@ -319,6 +351,31 @@ func keyRegistry() map[string]keyField {
 				return c, nil
 			},
 		},
+		"schedule.enabled": {
+			get: func(c Config) string { return strconv.FormatBool(c.Schedule.Enabled) },
+			set: func(c Config, v string) (Config, error) {
+				b, err := parseBool(v)
+				if err != nil {
+					return Config{}, err
+				}
+				c.Schedule.Enabled = b
+				return c, nil
+			},
+		},
+		"schedule.interval": {
+			get: func(c Config) string { return c.Schedule.Interval },
+			set: func(c Config, v string) (Config, error) {
+				c.Schedule.Interval = v
+				return c, nil
+			},
+		},
+		"schedule.command": {
+			get: func(c Config) string { return c.Schedule.Command },
+			set: func(c Config, v string) (Config, error) {
+				c.Schedule.Command = v
+				return c, nil
+			},
+		},
 	}
 }
 
@@ -336,7 +393,7 @@ func Keys() []string {
 
 // Get returns the current value of key in cfg as a string, or an error if
 // key is not part of the namespace.
-func Get(cfg Config, key string) (string, error) {
+func Get(cfg Config, key string) (string, error) { //nolint:gocritic // STYLE.md mandates value semantics for config/data; Config crossed hugeParam's 80-byte bound only when the schedule block was added — kept by value, not pointer-converted
 	f, ok := keyRegistry()[key]
 	if !ok {
 		return "", unknownKeyError(key)
@@ -347,7 +404,7 @@ func Get(cfg Config, key string) (string, error) {
 // Set returns cfg with key updated to value, or an error if key is
 // unknown or value doesn't parse for the field's type. Pure — the caller
 // persists the result with Save.
-func Set(cfg Config, key, value string) (Config, error) {
+func Set(cfg Config, key, value string) (Config, error) { //nolint:gocritic // STYLE.md mandates value semantics for config/data; Config crossed hugeParam's 80-byte bound only when the schedule block was added — kept by value, not pointer-converted
 	f, ok := keyRegistry()[key]
 	if !ok {
 		return Config{}, unknownKeyError(key)

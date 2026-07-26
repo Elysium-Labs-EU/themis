@@ -91,7 +91,7 @@ Exit codes:
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}
-		srcs, err := audit.Enabled(checkSourceConfig(opCfg, readCheckFlags(cmd)))
+		srcs, err := audit.Enabled(checkSourceConfig(opCfg.Sources, readCheckFlags(cmd)))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}
