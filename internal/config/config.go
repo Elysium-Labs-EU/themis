@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -100,6 +101,75 @@ func Path() string {
 		return rootConfigPath
 	}
 	return filepath.Join(home, userConfigRelPath)
+}
+
+// yamlBool renders b as a YAML boolean literal ("true"/"false") — the
+// same tokens Load's yaml.Unmarshal parses back into a bool.
+func yamlBool(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+// yamlString renders s as a double-quoted YAML scalar, so an empty value
+// serializes as `""` (a visible, self-documenting placeholder the wizard
+// can leave for the operator to fill in) rather than a bare newline.
+// Content and profile paths in practice never contain a double quote or
+// backslash; guard anyway so a pathological value can't break the file.
+func yamlString(s string) string {
+	escaped := strings.ReplaceAll(s, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return `"` + escaped + `"`
+}
+
+// Render produces the self-documenting YAML text for cfg: a leading
+// comment block explaining precedence plus every key Load reads, each
+// with an inline comment. This is themis's config documentation surface
+// — `themis init` writes it verbatim, so keep the keys and comments here
+// in sync with the yaml tags Load unmarshals into. The output round-trips:
+// Load(Render(cfg)) == cfg. Pure — no I/O.
+func Render(cfg Config) string {
+	s := cfg.Sources
+	return fmt.Sprintf(`# themis operator configuration
+#
+# Sets defaults for which audit sources run and their per-source options,
+# so you don't have to repeat CLI flags on every invocation. Precedence is
+# built-in defaults < this file < CLI flags: a flag always wins where it is
+# explicitly passed. Omit any key to keep its built-in default.
+#
+# Regenerate this file at any time with: themis init
+sources:
+  # Lynis: the third-party system auditor themis wraps. Always a themis
+  # dependency, so it runs by default.
+  lynis:
+    enabled: %s
+    quick: %s          # run lynis's lighter --quick profile instead of a full audit
+    skip_unchanged: %s # reuse the last report when nothing lynis cares about (config, package list) changed
+  # themis-native: themis's own built-in checks. No external dependency.
+  native:
+    enabled: %s
+  # osquery: drift detection against fixes a prior 'themis apply' recorded.
+  # No-ops safely when osqueryi isn't installed or there is no prior state.
+  osquery:
+    enabled: %s
+  # OpenSCAP: evaluates a SCAP/XCCDF datastream. Off by default — unlike
+  # lynis it is not a themis dependency, and most hosts have no SCAP content
+  # installed. Set content to a datastream path and enabled: true to run it.
+  openscap:
+    enabled: %s
+    content: %s # path to a SCAP/XCCDF datastream (e.g. ssg-debian content); required when enabled
+    profile: %s # XCCDF profile ID to evaluate; empty uses the datastream's own default profile
+`,
+		yamlBool(s.Lynis.Enabled),
+		yamlBool(s.Lynis.Quick),
+		yamlBool(s.Lynis.SkipUnchanged),
+		yamlBool(s.Native.Enabled),
+		yamlBool(s.Osquery.Enabled),
+		yamlBool(s.OpenSCAP.Enabled),
+		yamlString(s.OpenSCAP.Content),
+		yamlString(s.OpenSCAP.Profile),
+	)
 }
 
 // Load reads and parses the config file at path, merging it on top of

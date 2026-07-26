@@ -32,6 +32,7 @@ func Execute() error {
 
 func init() {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(applyCmd)
