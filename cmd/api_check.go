@@ -87,11 +87,11 @@ Exit codes:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		quick, _ := cmd.Flags().GetBool("quick")
-		scapContent, _ := cmd.Flags().GetString("scap-content")
-		scapProfile, _ := cmd.Flags().GetString("scap-profile")
-		skipUnchanged, _ := cmd.Flags().GetBool("skip-unchanged")
-		srcs, err := audit.Enabled(checkSourceConfig(quick, skipUnchanged, scapContent, scapProfile))
+		opCfg, err := loadOperatorConfig()
+		if err != nil {
+			return writeJSONErr(cmd, err)
+		}
+		srcs, err := audit.Enabled(checkSourceConfig(opCfg, readCheckFlags(cmd)))
 		if err != nil {
 			return writeJSONErr(cmd, err)
 		}

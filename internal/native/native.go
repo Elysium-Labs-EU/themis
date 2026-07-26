@@ -23,9 +23,15 @@ func NewSource() Source { return Source{} }
 
 // init registers themis-native in the audit source registry so the
 // command layer builds it by name via audit.Enabled. order 20 keeps it
-// after lynis, matching the historical order.
+// after lynis, matching the historical order. cfg.NativeEnabled gates
+// whether it runs at all — an operator config file's
+// sources.native.enabled: false leaves it out of the enabled set
+// entirely.
 func init() {
-	audit.Register("themis", 20, func(audit.SourceConfig) (audit.Source, error) {
+	audit.Register("themis", 20, func(cfg audit.SourceConfig) (audit.Source, error) {
+		if !cfg.NativeEnabled {
+			return nil, audit.ErrSourceNotEnabled
+		}
 		return NewSource(), nil
 	})
 }
