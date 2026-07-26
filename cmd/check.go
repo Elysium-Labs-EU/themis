@@ -73,34 +73,34 @@ func loadOperatorConfig() (config.Config, error) {
 // (flags.XSet), otherwise cfg's (already-defaulted) value applies. Which
 // sources actually run — and in what order — lives in the registry (each
 // source's package init), not here. Pure — no I/O.
-func checkSourceConfig(cfg config.Config, flags checkFlags) audit.SourceConfig {
-	quick := cfg.Sources.Lynis.Quick
+func checkSourceConfig(sources config.SourcesConfig, flags checkFlags) audit.SourceConfig {
+	quick := sources.Lynis.Quick
 	if flags.QuickSet {
 		quick = flags.Quick
 	}
-	skipUnchanged := cfg.Sources.Lynis.SkipUnchanged
+	skipUnchanged := sources.Lynis.SkipUnchanged
 	if flags.SkipUnchangedSet {
 		skipUnchanged = flags.SkipUnchanged
 	}
 
 	scapContent := ""
-	if cfg.Sources.OpenSCAP.Enabled {
-		scapContent = cfg.Sources.OpenSCAP.Content
+	if sources.OpenSCAP.Enabled {
+		scapContent = sources.OpenSCAP.Content
 	}
 	if flags.ScapContentSet {
 		scapContent = flags.ScapContent
 	}
-	scapProfile := cfg.Sources.OpenSCAP.Profile
+	scapProfile := sources.OpenSCAP.Profile
 	if flags.ScapProfileSet {
 		scapProfile = flags.ScapProfile
 	}
 
 	return audit.SourceConfig{
-		LynisEnabled:        cfg.Sources.Lynis.Enabled,
+		LynisEnabled:        sources.Lynis.Enabled,
 		LynisQuick:          quick,
 		LynisSkipUnchanged:  skipUnchanged,
-		NativeEnabled:       cfg.Sources.Native.Enabled,
-		OsqueryEnabled:      cfg.Sources.Osquery.Enabled,
+		NativeEnabled:       sources.Native.Enabled,
+		OsqueryEnabled:      sources.Osquery.Enabled,
 		OpenSCAPContentPath: scapContent,
 		OpenSCAPProfile:     scapProfile,
 	}
@@ -120,7 +120,7 @@ func newCheckCmd() *cobra.Command {
 			var findings []audit.Finding
 			err = ui.WithSpinner("Running audit...", func() error {
 				var srcs []audit.Source
-				srcs, err = audit.Enabled(checkSourceConfig(opCfg, readCheckFlags(cmd)))
+				srcs, err = audit.Enabled(checkSourceConfig(opCfg.Sources, readCheckFlags(cmd)))
 				if err != nil {
 					return err
 				}

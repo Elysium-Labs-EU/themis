@@ -40,5 +40,6 @@ func init() {
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(systemCmd)
+	rootCmd.AddCommand(scheduleCmd)
 	rootCmd.AddCommand(newCompletionCmd(rootCmd))
 }
