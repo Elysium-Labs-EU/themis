@@ -20,6 +20,7 @@ type apiFinding struct {
 	Sources     []string `json:"sources"`
 	Fixes       []apiFix `json:"fixes"`
 	Actionable  bool     `json:"actionable"`
+	Malformed   bool     `json:"malformed"`
 }
 
 type apiDrift struct {
@@ -55,6 +56,7 @@ Output schema (stdout, JSON):
         "solution":    string  -- the source's own remediation hint, "-" if none
         "sources":     []string -- audit source(s) that reported this finding, e.g. ["lynis"]
         "actionable":  bool    -- false if no themis fix, no solution, and not a warning
+        "malformed":   bool    -- true if the source finding's own fields failed validation (never actionable)
         "fixes": [
           { "test_id": string, "description": string, "satisfied": bool }
         ]
@@ -122,6 +124,7 @@ Exit codes:
 				Solution:    f.Solution,
 				Sources:     f.Sources,
 				Actionable:  f.Actionable,
+				Malformed:   f.Malformed,
 				Fixes:       fs,
 			})
 		}

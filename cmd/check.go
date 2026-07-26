@@ -178,15 +178,32 @@ func friendlySourceName(source string) string {
 	}
 }
 
+// sanitizeForTerminal strips control characters — including the ESC byte
+// that begins an ANSI escape sequence — from free-text finding fields
+// before they reach the terminal. Finding text comes from an external
+// audit source (e.g. lynis); without this, a crafted Description or
+// Solution could plant escape sequences that manipulate terminal output
+// (move the cursor, overwrite prior lines, hide/alter what's shown).
+func sanitizeForTerminal(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 func printFindingBlock(out io.Writer, f *checkreport.Finding) {
-	kind := ui.TextMuted.Render(f.Kind)
+	testID := sanitizeForTerminal(f.TestID)
+	kindText := sanitizeForTerminal(f.Kind)
+	kind := ui.TextMuted.Render(kindText)
 	if f.Kind == "warning" {
-		kind = ui.LabelWarning.Render(f.Kind)
+		kind = ui.LabelWarning.Render(kindText)
 	}
-	_, _ = fmt.Fprintf(out, "%s %s\n", ui.TextBold.Render(f.TestID), kind)
-	_, _ = fmt.Fprintf(out, "  %s\n", f.Description)
+	_, _ = fmt.Fprintf(out, "%s %s\n", ui.TextBold.Render(testID), kind)
+	_, _ = fmt.Fprintf(out, "  %s\n", sanitizeForTerminal(f.Description))
 	if f.Solution != "" && f.Solution != "-" {
-		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("solution:"), f.Solution)
+		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("solution:"), sanitizeForTerminal(f.Solution))
 	}
 	if len(f.Fixes) > 0 {
 		_, _ = fmt.Fprintf(out, "  %s %s\n", ui.TextMuted.Render("themis fix:"), fixSummary(f.Fixes))
@@ -261,7 +278,8 @@ func printDeemphasized(out io.Writer, deemphasized []checkreport.Finding) {
 		if len(deemphasized[i].Sources) > 0 {
 			source = friendlySourceName(deemphasized[i].Sources[0])
 		}
-		_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(deemphasized[i].TestID+" ("+source+") — "+deemphasized[i].Description))
+		line := sanitizeForTerminal(deemphasized[i].TestID) + " (" + source + ") — " + sanitizeForTerminal(deemphasized[i].Description)
+		_, _ = fmt.Fprintf(out, "  %s\n", ui.TextMuted.Render(line))
 	}
 	_, _ = fmt.Fprintf(out, "  run %s for full details\n", ui.TextCommand.Render("themis check --all"))
 }

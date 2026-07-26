@@ -56,6 +56,54 @@ func TestReadReportMissingFile(t *testing.T) {
 	}
 }
 
+func TestReadReportRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real-report.dat")
+	if err := os.WriteFile(target, []byte("suggestion[]=SSH-7408|x|-|-|\n"), 0o644); err != nil {
+		t.Fatalf("seeding report: %v", err)
+	}
+	link := filepath.Join(dir, "lynis-report.dat")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if _, err := readReport(link); err == nil {
+		t.Fatal("expected readReport to reject a symlinked report path")
+	}
+}
+
+func TestReadReportRejectsGroupOrOtherWritableMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lynis-report.dat")
+	if err := os.WriteFile(path, []byte("suggestion[]=SSH-7408|x|-|-|\n"), 0o644); err != nil {
+		t.Fatalf("seeding report: %v", err)
+	}
+	if err := os.Chmod(path, 0o646); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	if _, err := readReport(path); err == nil {
+		t.Fatal("expected readReport to reject a group/other-writable report file")
+	}
+}
+
+func TestVerifyReportOwnerAndModeRejectsWrongUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lynis-report.dat")
+	if err := os.WriteFile(path, []byte("suggestion[]=SSH-7408|x|-|-|\n"), 0o644); err != nil {
+		t.Fatalf("seeding report: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+
+	if err := verifyReportOwnerAndMode(info, os.Geteuid()+1); err == nil {
+		t.Fatal("expected verifyReportOwnerAndMode to reject a UID mismatch")
+	}
+	if err := verifyReportOwnerAndMode(info, os.Geteuid()); err != nil {
+		t.Errorf("verifyReportOwnerAndMode with the real UID: %v", err)
+	}
+}
+
 func TestLynisArgsDefaultIsFullAudit(t *testing.T) {
 	got := lynisArgs(Options{})
 	want := []string{"audit", "system", "--quiet"}

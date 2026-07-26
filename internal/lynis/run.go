@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/Elysium-Labs-EU/themis/internal/binpath"
 	"github.com/Elysium-Labs-EU/themis/internal/ui"
@@ -165,17 +167,56 @@ func runLynisAudit(ctx context.Context, lynisBin string, opts Options) error {
 	return nil
 }
 
-// readReport opens the lynis report at path and returns its parsed findings.
+// readReport opens the lynis report at path and returns its parsed
+// findings. Like state.json (internal/state/state.go), the report sits
+// between when lynis (running as root) writes it and when themis reads
+// it back, so it's treated as hostile: another user with write access to
+// its directory could otherwise plant a symlink or swap in a report of
+// their own choosing ahead of this root-privileged read, whose contents
+// flow straight into fix/verdict classification. O_NOFOLLOW rejects a
+// symlink at path outright, and the ownership/mode check runs against
+// the opened fd so there's no window between check and read.
 func readReport(path string) ([]Finding, error) {
-	f, err := os.Open(path) //nolint:gosec // path is a fixed report-file constant at the call site
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) //nolint:gosec // path is a fixed report-file constant; O_NOFOLLOW rejects symlinks
 	if err != nil {
 		return nil, fmt.Errorf("opening lynis report %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("opening lynis report %s: %w", path, err)
+	}
+	if verifyErr := verifyReportOwnerAndMode(info, os.Geteuid()); verifyErr != nil {
+		return nil, fmt.Errorf("lynis report %s failed integrity check: %w", path, verifyErr)
+	}
 
 	findings, err := ParseReport(f)
 	if err != nil {
 		return nil, fmt.Errorf("parsing lynis report %s: %w", path, err)
 	}
 	return findings, nil
+}
+
+// verifyReportOwnerAndMode rejects a report file that isn't owned by
+// wantUID or that grants group/other write access — either means someone
+// besides the user running themis could have written or swapped it.
+// World-read is left alone (lynis's own default mode for a log file);
+// only write access crosses the trust boundary. Pure — info and wantUID
+// are already-resolved inputs, no I/O here.
+func verifyReportOwnerAndMode(info fs.FileInfo, wantUID int) error {
+	if !info.Mode().IsRegular() {
+		return errors.New("not a regular file")
+	}
+	if perm := info.Mode().Perm(); perm&0o022 != 0 {
+		return fmt.Errorf("mode %04o is writable by group/other", perm)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("cannot determine file owner")
+	}
+	if int(stat.Uid) != wantUID {
+		return fmt.Errorf("owned by uid %d, want %d", stat.Uid, wantUID)
+	}
+	return nil
 }

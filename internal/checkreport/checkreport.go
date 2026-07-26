@@ -4,6 +4,8 @@
 package checkreport
 
 import (
+	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
@@ -40,6 +42,13 @@ type Finding struct {
 	// warning (the source's own higher-severity bucket) — safe to hide
 	// by default.
 	Actionable bool
+	// Malformed is true when the source finding's own fields (TestID
+	// shape, Kind, or field length) didn't pass validation. A malformed
+	// finding is never Actionable and never matched against tracked
+	// Fixes, regardless of what its Kind/Solution claim — the audit
+	// source is external (e.g. lynis) and its output isn't trusted to
+	// drive a pass/fail verdict on its own say-so.
+	Malformed bool
 }
 
 // Report is the full merge: every audit finding (tagged actionable or
@@ -75,6 +84,62 @@ func hasSolution(solution string) bool {
 	return solution != "" && solution != "-"
 }
 
+// maxFieldLen bounds free-text finding fields (Description, Solution)
+// from an audit source. Generous enough for any real Lynis line, small
+// enough to stop a hostile source flooding the report or memory.
+const maxFieldLen = 2000
+
+// testIDPattern allowlists the Lynis test ID shape (e.g. "SSH-7408" or
+// "HRDN-7230"): uppercase letters/digits, a hyphen, then digits. This
+// also guards the "|"-joined dedup key in Build below — an unconstrained
+// TestID containing "|" could otherwise be crafted to collide with an
+// unrelated finding's key.
+var testIDPattern = regexp.MustCompile(`^[A-Z0-9]{2,10}-[0-9]{3,6}$`)
+
+// nativeTestIDPattern allowlists the shape of a themis-native TestID (e.g.
+// "THEMIS-FAIL2BAN", "THEMIS-UNATTENDED-UPGRADES", registered in
+// internal/fix/registry.go and reported by internal/native): a "THEMIS-"
+// prefix followed by uppercase letters/digits/hyphens, length-bounded and
+// "|"-free for the same dedup-key-spoofing reason as testIDPattern.
+var nativeTestIDPattern = regexp.MustCompile(`^THEMIS-[A-Z0-9-]{1,40}$`)
+
+// openscapTestIDPattern allowlists the shape of an OpenSCAP XCCDF rule id
+// (e.g. "xccdf_org.ssgproject.content_rule_sshd_disable_root_login",
+// reported by internal/openscap with Source "openscap"): an "xccdf_"
+// prefix followed by lowercase letters/digits/underscores/dots. These ids
+// are longer than Lynis/native ones, so the bound is looser, but it stays
+// length-bounded and "|"-free for the same dedup-key-spoofing reason as
+// the other two patterns.
+var openscapTestIDPattern = regexp.MustCompile(`^xccdf_[a-z0-9_.]{1,200}$`)
+
+// validKinds allowlists the two kinds a real audit source reports.
+// Kind is one of the fields that decides Actionable, so an unexpected
+// value can't be trusted to mean "warning".
+var validKinds = map[string]bool{"suggestion": true, "warning": true}
+
+// trustworthy reports whether a finding's TestID, Kind, description, and
+// solution are shaped like a real audit finding: an allowlisted TestID for
+// its claimed Source, allowlisted Kind, and free-text fields within a sane
+// size. The TestID shape is source-specific — Source="themis" (this
+// codebase's own native checks) validates against nativeTestIDPattern and
+// Source="openscap" against openscapTestIDPattern, since each source's ids
+// look nothing like Lynis's "SSH-7408" shape and would otherwise all fail
+// testIDPattern and get wrongly flagged Malformed. Takes only the fields
+// it needs rather than a whole audit.Finding. Pure — no I/O.
+func trustworthy(source, testID, kind, description, solution string) bool {
+	idPattern := testIDPattern
+	switch source {
+	case "themis":
+		idPattern = nativeTestIDPattern
+	case "openscap":
+		idPattern = openscapTestIDPattern
+	}
+	return idPattern.MatchString(testID) &&
+		validKinds[kind] &&
+		len(description) <= maxFieldLen &&
+		len(solution) <= maxFieldLen
+}
+
 // Build merges findings from one or more audit sources with resolved
 // themis fixes. A finding sharing a TestID and Kind with one already seen
 // (e.g. reported by two sources) is collapsed into the existing entry
@@ -89,7 +154,11 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 	matched := make(map[string]bool, len(fixes))
 	seen := make(map[string]int, len(findings))
 
-	for _, f := range findings {
+	for i, f := range findings {
+		// Drift findings come from an internal, trusted source
+		// (internal/osquery), not the external audit sources the
+		// trustworthiness check guards against, and carry their own
+		// shape — route them out before validation.
 		if f.Kind == "drift" {
 			report.Drift = append(report.Drift, Finding{
 				TestID:      f.TestID,
@@ -102,7 +171,16 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 			continue
 		}
 
+		trusted := trustworthy(f.Source, f.TestID, f.Kind, f.Description, f.Solution)
+
 		key := f.TestID + "|" + f.Kind
+		if !trusted {
+			// An untrustworthy TestID/Kind can't be used as a dedup key
+			// either (e.g. an embedded "|" could collide with an
+			// unrelated finding's key), so give it one that can never
+			// match anything else.
+			key = fmt.Sprintf("malformed#%d", i)
+		}
 		if idx, ok := seen[key]; ok {
 			existing := &report.Findings[idx]
 			if !slices.Contains(existing.Sources, f.Source) {
@@ -111,18 +189,22 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 			continue
 		}
 
-		tracked := byLynisID[f.TestID]
-		for _, t := range tracked {
-			matched[t.TestID] = true
+		var tracked []Fix
+		if trusted {
+			tracked = byLynisID[f.TestID]
+			for _, t := range tracked {
+				matched[t.TestID] = true
+			}
 		}
 		report.Findings = append(report.Findings, Finding{
-			TestID:      f.TestID,
-			Kind:        f.Kind,
-			Description: f.Description,
-			Solution:    f.Solution,
+			TestID:      truncate(f.TestID),
+			Kind:        truncate(f.Kind),
+			Description: truncate(f.Description),
+			Solution:    truncate(f.Solution),
 			Sources:     []string{f.Source},
 			Fixes:       tracked,
-			Actionable:  len(tracked) > 0 || hasSolution(f.Solution) || f.Kind == "warning",
+			Malformed:   !trusted,
+			Actionable:  trusted && (len(tracked) > 0 || hasSolution(f.Solution) || f.Kind == "warning"),
 		})
 		seen[key] = len(report.Findings) - 1
 	}
@@ -133,4 +215,17 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 		}
 	}
 	return report
+}
+
+// truncate caps s at maxFieldLen runes, appending a marker when it does.
+// Pure — no I/O.
+func truncate(s string) string {
+	if len(s) <= maxFieldLen {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= maxFieldLen {
+		return s
+	}
+	return string(r[:maxFieldLen]) + "…(truncated)"
 }

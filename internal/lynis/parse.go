@@ -25,6 +25,10 @@ type Finding struct {
 const (
 	suggestionPrefix = "suggestion[]="
 	warningPrefix    = "warning[]="
+	// maxLineSize replaces bufio.Scanner's default 64KB per-line cap,
+	// which a single unusually long real-world report line can exceed
+	// and abort the whole parse.
+	maxLineSize = 8 * 1024 * 1024
 )
 
 // ParseReport reads a Lynis report.dat stream and extracts suggestion[]
@@ -34,6 +38,7 @@ func ParseReport(r io.Reader) ([]Finding, error) {
 	var findings []Finding
 
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 	for scanner.Scan() {
 		line := scanner.Text()
 

@@ -1,6 +1,7 @@
 package checkreport
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Elysium-Labs-EU/themis/internal/audit"
@@ -88,9 +89,15 @@ func TestBuildCollectsUnmatchedFixesAsNative(t *testing.T) {
 }
 
 func TestBuildDedupesFindingsReportedByMultipleSources(t *testing.T) {
+	// Two sources merge only when they report the *same* TestID, and per-
+	// source validation now requires each id to match its own source's
+	// namespace — so the pair has to share a namespace. lynis and osquery
+	// both use the default lynis-shaped pattern, so "SSH-7408" is valid for
+	// both; openscap (xccdf_* ids) never collides with lynis's namespace,
+	// so a real lynis+openscap pair wouldn't dedup here in the first place.
 	findings := []audit.Finding{
 		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-", Source: "lynis"},
-		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-", Source: "openscap"},
+		{TestID: "SSH-7408", Kind: "suggestion", Description: "harden ssh", Solution: "-", Source: "osquery"},
 	}
 
 	report := Build(findings, nil)
@@ -99,7 +106,7 @@ func TestBuildDedupesFindingsReportedByMultipleSources(t *testing.T) {
 		t.Fatalf("expected duplicate findings to collapse into 1, got %d", len(report.Findings))
 	}
 	sources := report.Findings[0].Sources
-	if len(sources) != 2 || sources[0] != "lynis" || sources[1] != "openscap" {
+	if len(sources) != 2 || sources[0] != "lynis" || sources[1] != "osquery" {
 		t.Fatalf("expected both sources recorded, got %+v", sources)
 	}
 }
@@ -126,6 +133,145 @@ func TestBuildRoutesDriftFindingsSeparatelyFromGenericFindings(t *testing.T) {
 	}
 	if len(d.Sources) != 1 || d.Sources[0] != "osquery" {
 		t.Errorf("drift finding Sources = %+v, want [osquery]", d.Sources)
+	}
+}
+
+func TestBuildFlagsMalformedTestIDAsNotActionable(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "'; DROP TABLE findings;--", Kind: "warning", Description: "crafted", Solution: "run this"},
+	}
+
+	report := Build(findings, nil)
+
+	if len(report.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(report.Findings))
+	}
+	f := report.Findings[0]
+	if !f.Malformed {
+		t.Error("expected a finding with a malformed TestID to be flagged Malformed")
+	}
+	if f.Actionable {
+		t.Error("expected a malformed finding to never be Actionable, even with Kind=warning and a Solution")
+	}
+}
+
+func TestBuildFlagsUnexpectedKindAsNotActionable(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "SSH-7408", Kind: "critical-override", Description: "crafted kind", Solution: "run this"},
+	}
+
+	report := Build(findings, nil)
+
+	if !report.Findings[0].Malformed {
+		t.Error("expected an unexpected Kind to be flagged Malformed")
+	}
+	if report.Findings[0].Actionable {
+		t.Error("expected a finding with an unexpected Kind to never be Actionable")
+	}
+}
+
+func TestBuildFlagsOversizedFieldsAsNotActionable(t *testing.T) {
+	huge := strings.Repeat("A", maxFieldLen+1)
+	findings := []audit.Finding{
+		{TestID: "SSH-7408", Kind: "warning", Description: huge, Solution: "-"},
+	}
+
+	report := Build(findings, nil)
+
+	if !report.Findings[0].Malformed {
+		t.Error("expected an oversized Description to be flagged Malformed")
+	}
+	if report.Findings[0].Actionable {
+		t.Error("expected an oversized finding to never be Actionable")
+	}
+	if got := len(report.Findings[0].Description); got > maxFieldLen+len("…(truncated)") {
+		t.Errorf("expected Description to be truncated, got %d runes", got)
+	}
+}
+
+func TestBuildMalformedTestIDCannotSpoofDedupKey(t *testing.T) {
+	// A TestID containing the "|" key separator could otherwise be
+	// crafted to collide with an unrelated finding's dedup key
+	// (TestID + "|" + Kind) and get silently merged into it.
+	findings := []audit.Finding{
+		{TestID: "SSH-7408", Kind: "suggestion", Description: "real finding", Solution: "-", Source: "lynis"},
+		{TestID: "SSH-7408|suggestion", Kind: "", Description: "spoofed merge attempt", Solution: "-", Source: "attacker"},
+	}
+
+	report := Build(findings, nil)
+
+	if len(report.Findings) != 2 {
+		t.Fatalf("expected the crafted TestID to stay a separate finding, got %d: %+v", len(report.Findings), report.Findings)
+	}
+	real := report.Findings[0]
+	if len(real.Sources) != 1 || real.Sources[0] != "lynis" {
+		t.Errorf("expected the real finding's Sources untouched by the spoof attempt, got %+v", real.Sources)
+	}
+}
+
+func TestBuildPairsNativeFindingWithItsFix(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "THEMIS-FAIL2BAN", Kind: "suggestion", Description: "fail2ban not active", Solution: "-", Source: "themis"},
+	}
+	fixes := []Fix{
+		{TestID: "THEMIS-FAIL2BAN", LynisID: "THEMIS-FAIL2BAN", Description: "install and enable fail2ban"},
+	}
+
+	report := Build(findings, fixes)
+
+	if len(report.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(report.Findings))
+	}
+	f := report.Findings[0]
+	if f.Malformed {
+		t.Error("expected a native themis finding to not be flagged Malformed")
+	}
+	if !f.Actionable {
+		t.Error("expected a native finding tracked by a fix to be actionable")
+	}
+	if len(f.Fixes) != 1 || f.Fixes[0].TestID != "THEMIS-FAIL2BAN" {
+		t.Fatalf("expected the native fix to be attached to the finding, got %+v", f.Fixes)
+	}
+	if len(report.Unmatched) != 0 {
+		t.Fatalf("expected the fix to be matched, not left in Unmatched, got %+v", report.Unmatched)
+	}
+}
+
+func TestBuildKeepsOpenSCAPFindingActionable(t *testing.T) {
+	// An OpenSCAP XCCDF rule id (internal/openscap sets Source "openscap")
+	// looks nothing like Lynis's "SSH-7408" shape. It must validate against
+	// openscapTestIDPattern, not the Lynis pattern — otherwise every real
+	// openscap warning gets wrongly flagged Malformed and silently hidden.
+	findings := []audit.Finding{
+		{TestID: "xccdf_org.ssgproject.content_rule_sshd_disable_root_login", Kind: "warning", Description: "Disable SSH Root Login", Solution: "-", Source: "openscap"},
+	}
+
+	report := Build(findings, nil)
+
+	if len(report.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(report.Findings))
+	}
+	f := report.Findings[0]
+	if f.Malformed {
+		t.Error("expected an openscap xccdf-id finding to not be flagged Malformed")
+	}
+	if !f.Actionable {
+		t.Error("expected an openscap warning to remain Actionable")
+	}
+}
+
+func TestBuildTrustedFindingUnaffected(t *testing.T) {
+	findings := []audit.Finding{
+		{TestID: "SSH-7408", Kind: "warning", Description: "harden ssh", Solution: "-"},
+	}
+
+	report := Build(findings, nil)
+
+	if report.Findings[0].Malformed {
+		t.Error("expected a well-formed finding to not be flagged Malformed")
+	}
+	if !report.Findings[0].Actionable {
+		t.Error("expected a well-formed warning to remain Actionable")
 	}
 }
 
