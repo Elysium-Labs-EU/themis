@@ -6,16 +6,29 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-themis-blue?logo=github)](https://github.com/Elysium-Labs-EU/themis)
 
-themis merges findings from pluggable audit sources ([Lynis](https://cisofy.com/lynis/), plus themis-native checks) with a check/plan/apply/rollback workflow. It maps flagged findings to concrete fixes and applies them idempotently with rollback metadata.
+Audits a Debian or Ubuntu host, fixes what it finds, and keeps it fixed. The workflow is check, plan, apply, rollback.
+
+```bash
+sudo themis check      # audit and list actionable findings
+sudo themis plan       # show which fixes would be applied
+sudo themis apply      # apply unsatisfied fixes, saving rollback state
+sudo themis rollback   # undo the last apply
+```
+
+Findings come from pluggable sources. Lynis is one of them, not the whole tool. Sources detect; themis fixes.
 
 ## Features
 
-* **Actionable findings only** by default, findings with no themis fix and no solution hint print de-emphasized instead of a full table row; `--all` promotes them back.
-* **Idempotent fixes**, each registered fix knows how to detect its own satisfied state before applying anything.
-* **Rollback metadata** saved automatically on every `apply`, so a bad hardening run can be undone with one command.
-* **Drift detection** via [osquery](https://osquery.io/) (optional), `themis check` flags fixes that were satisfied by a prior `apply` but no longer hold, surfaced separately from fresh findings — see [Drift detection](#drift-detection) below.
-* **Machine-readable output** via `themis api check`, for scripting or CI gates.
-* **Zero required runtime dependencies** beyond Lynis itself, single static binary; osquery is optional and only used for drift detection.
+* **Fixes, not just findings.** Every fix detects its own satisfied state and applies idempotently. Findings themis can act on lead the report; the rest print de-emphasized, `--all` shows them.
+* **One-command rollback.** Every apply saves revert metadata, so a bad run undoes cleanly.
+* **Pluggable audit sources.** Lynis, themis-native checks, osquery, and OpenSCAP register by name and merge into one report, grouped by who reported each finding.
+* **Configurable.** A config file sets which sources run and their options. Scaffold it with `themis init`, change one value with `themis config set`.
+* **Recurring scans.** `themis schedule enable` installs a systemd timer, launchd agent, or cron entry that runs a scan on an interval.
+* **Drift detection.** `themis check` re-verifies fixes a prior apply satisfied and flags any that no longer hold, via osquery.
+* **Machine-readable.** `themis api check` emits JSON for scripts and CI gates.
+* **Single static binary.** Only Lynis is required for the default audit; osquery and OpenSCAP are optional per source.
+
+If you have run Lynis and wished it fixed the findings instead of listing them, that is themis.
 
 ## Install
 
@@ -38,100 +51,113 @@ cd themis
 go build -o themis
 ```
 
-Requires [Lynis](https://cisofy.com/lynis/) on PATH; themis shells out to it for the audit. [osquery](https://osquery.io/) is optional and only needed for drift detection — see [Drift detection](#drift-detection).
-
-### OpenSCAP (optional)
-
-themis can additionally run [OpenSCAP](https://www.open-scap.org/) (`oscap xccdf eval`) against CIS/DISA benchmark content, e.g. the [SCAP Security Guide](https://github.com/ComplianceAsCode/content):
-
-```bash
-sudo apt install libopenscap8 scap-security-guide-debian
-sudo themis check --scap-content /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
-sudo themis check --scap-content /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml --scap-profile xccdf_org.ssgproject.content_profile_cis_level1_server
-```
-
-`--scap-content` is required to enable the OpenSCAP source; without it themis runs Lynis and its native checks only, unchanged from before. `--scap-profile` scopes the scan to one XCCDF profile (default: the datastream's own default profile). OpenSCAP rule IDs (`xccdf_org.ssgproject.content_rule_...`) are a separate namespace from Lynis test IDs, so they never collide in `fix.Registry`; findings surface for review even before a themis fix targets them.
-
-### Release integrity
-
-`install.sh` and `themis system update` only download from `github.com` over HTTPS, verify the downloaded binary's sha256 against the release's `sha256sums.txt`, and — once a release publishes one — verify an ECDSA P-256 signature over `sha256sums.txt` (`sha256sums.txt.sig`) against a public key embedded in both `install.sh` and the binary. A release with no signature is only warned about, not rejected; see `requireReleaseSignature` in `cmd/update.go`.
-
-That covers the *binary* themis downloads for you — but the quick-install one-liners above fetch `install.sh` itself from `main`, a mutable branch with no integrity check on the script text before it's piped to `bash`.
-
-### Verified installation
-
-If you're installing on a machine you care about, use this path instead of the quick-install one-liners: `install.sh` is included in every release's signed `sha256sums.txt`, so fetching it from the release (not `main`) lets you verify it the same way as the binary, before running it.
-
-```bash
-VERSION=v0.0.3-rc.1   # pin to the release you intend to install -- see: https://github.com/Elysium-Labs-EU/themis/releases
-REPO=Elysium-Labs-EU/themis
-
-curl -sSL -o install.sh        "https://github.com/${REPO}/releases/download/${VERSION}/install.sh"
-curl -sSL -o sha256sums.txt     "https://github.com/${REPO}/releases/download/${VERSION}/sha256sums.txt"
-curl -sSL -o sha256sums.txt.sig "https://github.com/${REPO}/releases/download/${VERSION}/sha256sums.txt.sig"
-
-cat > release-signing-pubkey.pem <<'EOF'
------BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZo6eWxjF1xhHMI/MyUNptSdkxuHM
-qAeiDXd1PrPNR3I1N1radAb1df3CPt0WjZQmuTesJLQiDL91WwVt7fraSA==
------END PUBLIC KEY-----
-EOF
-
-# 1. sha256sums.txt itself is genuinely from us
-openssl dgst -sha256 -verify release-signing-pubkey.pem -signature sha256sums.txt.sig sha256sums.txt
-# 2. install.sh matches what that manifest attests to
-sha256sum -c <(grep install.sh sha256sums.txt)
-
-sudo bash install.sh
-```
-
-The public key above must match `RELEASE_SIGNING_PUBKEY` in `install.sh` and `releaseSigningPublicKeyPEM` in `cmd/update.go` exactly — CI's `check-signing-key-sync.sh` gates on that, but verifying against the copy in this README (fetched independently of the release itself) is what actually roots the trust chain in something other than the artifact you're checking.
+The default audit runs Lynis and themis-native checks, so [Lynis](https://cisofy.com/lynis/) must be on `PATH`. osquery and OpenSCAP are optional and only needed when their sources are enabled.
 
 ## Quick Start
 
 ```bash
-# Run an audit and list actionable findings
-sudo themis check
-
-# Show which registered fixes would be applied
-sudo themis plan
-
-# Apply all unsatisfied fixes, saving rollback state
-sudo themis apply
-
-# Undo the fixes from the last apply
-sudo themis rollback
+sudo themis init       # scaffold a config file (optional)
+sudo themis check      # audit
+sudo themis apply      # fix
 ```
+
+## Sources and fixes
+
+Detecting and fixing stay separate.
+
+Sources produce findings. Each source runs and reports; `themis check` merges them into one report grouped by source.
+
+| Source | Reports | Requires |
+|--------|---------|----------|
+| `lynis` | Third-party system-hardening findings | Lynis on `PATH` (default) |
+| `themis` | themis-native checks, things Lynis handles poorly or not at all | nothing |
+| `osquery` | Drift on fixes a prior apply satisfied | osqueryi (optional) |
+| `openscap` | CIS/DISA benchmark results from a SCAP datastream | oscap and content (optional) |
+
+Fixes remediate findings. A fix maps to a finding's test ID, detects whether it is already satisfied, applies idempotently, and records rollback data. `themis plan` shows what would run, `themis apply` runs it. A source can surface an issue before any fix targets it, and a fix works no matter which source flagged it.
+
+## Configuration
+
+With no config file, the default audit runs Lynis, native checks, and osquery drift detection, with OpenSCAP off. A config file changes those defaults per host.
+
+Config is read from `THEMIS_CONFIG` if set, else `/etc/themis/config.yaml` as root, else `~/.themis/config.yaml`. Precedence is built-in defaults, then the file, then CLI flags. A flag wins where it is passed. Omit any key to keep its default.
+
+Scaffold a documented file:
+
+```bash
+sudo themis init         # prompts per source, writes a commented config.yaml
+sudo themis init --yes   # writes defaults without prompting
+```
+
+Read and write single values for scripted setups:
+
+```bash
+themis config path                                   # print the resolved path
+themis config get sources.lynis.enabled              # read one value
+sudo themis config set sources.lynis.enabled false   # disable a source
+```
+
+The file:
+
+```yaml
+sources:
+  lynis:
+    enabled: true
+    quick: false          # lynis --quick profile instead of a full audit
+    skip_unchanged: false # reuse the last report when nothing lynis cares about changed
+  native:
+    enabled: true
+  osquery:
+    enabled: true         # drift detection, no-ops without osqueryi or prior apply state
+  openscap:
+    enabled: false
+    content: ""           # path to a SCAP/XCCDF datastream, required when enabled
+    profile: ""           # XCCDF profile ID, empty uses the datastream default
+schedule:
+  enabled: false
+  interval: daily         # daily, weekly, or a raw systemd OnCalendar expression
+  command: check          # check or apply, what each scheduled run invokes
+```
+
+To run native checks only, disable `lynis`, `osquery`, and `openscap`. To add OpenSCAP, set `openscap.enabled: true` and point `openscap.content` at a datastream.
+
+## Recurring scans
+
+There is no daemon. A recurring scan is an OS-native unit that runs a one-shot themis command.
+
+```bash
+sudo themis schedule enable                      # install from the config schedule block
+sudo themis schedule enable --interval weekly --command apply
+sudo themis schedule status                      # installed state
+sudo themis schedule disable                     # remove it
+```
+
+The backend is chosen per host: a systemd timer, a launchd agent on macOS, or a cron entry. `interval` takes `daily`, `weekly`, or a systemd `OnCalendar` expression. `command` is `check` or `apply`.
 
 ## Drift detection
 
-Between `themis apply` runs, config a fix touched (an sshd directive, a sysctl, a service) can drift back out of compliance — someone edits it back, a package reinstall resets it, a service gets disabled. `themis check` re-verifies every fix a *prior* `apply` confirmed satisfied, independently of the same detection logic `apply` used, via [osquery](https://osquery.io/)'s system tables (`sshd_config`, `system_controls`, `systemd_units`). A fix that no longer holds is reported as **drift**, printed in its own section ahead of the regular findings (and under `"drift"` in `themis api check`'s JSON) rather than mixed in with fresh suggestions — a regression on something already fixed once is a different signal than something never addressed.
+Config a fix touched can drift back out of compliance between apply runs, someone edits it back, a package resets it, a service stops. `themis check` re-verifies every fix a prior apply confirmed, independently, via [osquery](https://osquery.io/) system tables. A fix that no longer holds is reported as drift, in its own section ahead of fresh findings, and under `"drift"` in `themis api check`.
 
-**Prerequisites**
+Drift detection is optional and self-skipping. With no osqueryi and no prior apply state at `/var/lib/themis/state.json`, `themis check` runs as before, no error, no drift section. Covered fixes and the query mapping live in `internal/osquery/checks.go`.
 
-* Install `osqueryi` (part of the [osquery](https://osquery.io/downloads/) package) and make sure it resolves from `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`, `/usr/local/sbin`, or `/usr/local/bin` — themis never resolves external commands through `$PATH`.
-* No osquery config file is required; themis invokes `osqueryi --json "<query>"` directly per check, it does not run `osqueryd` or use osquery's config/flag files.
-* Drift detection is entirely optional and self-skipping: with no `osqueryi` binary installed, or no prior `themis apply` state (`/var/lib/themis/state.json`) on the host, `themis check` runs exactly as before with no error and no drift section.
+## Release integrity
 
-Currently covered: `SSH-7408-ROOTLOGIN`, `SSH-7408-PASSWDAUTH`, `KRNL-6000`, `THEMIS-FAIL2BAN` (see `internal/osquery/checks.go` for the query-to-fix mapping). `FIRE-4590` and `PKGS-7392` aren't covered — see the doc comment on `osquery.Checks` for why.
+`install.sh` and `themis system update` download only from `github.com` over HTTPS, verify the binary sha256 against the release manifest, and verify an ECDSA signature over it. A release with no signature is warned about, not rejected. See [SECURITY.md](SECURITY.md) for the full verified-install steps.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `themis init` | Interactively scaffold a commented `config.yaml` (`--yes` writes defaults) |
-| `themis check` | Run an audit and list actionable findings |
-| `themis check --all` | Also show findings with no themis fix and no solution hint |
-| `themis check --scap-content <path>` | Also run OpenSCAP against the given SCAP/XCCDF datastream |
-| `themis plan` | Show which registered fixes would be applied |
-| `themis apply` | Apply all unsatisfied registered fixes and save rollback state |
-| `themis rollback` | Revert the fixes applied by the last `apply` |
-| `themis api check` | Return audit findings merged with themis fixes as JSON |
-| `themis system version` | Print version, git commit, and build date |
-| `themis system update` | Check for and install the latest themis release |
-| `themis system uninstall` | Remove the themis binary |
-| `themis completion` | Detect your shell and interactively install tab completion |
-| `themis completion bash\|zsh\|fish` | Print the completion script for a shell to stdout |
+| `themis init` | Scaffold a commented `config.yaml`, interactive or `--yes` |
+| `themis check` | Run an audit and list actionable findings, `--all` shows the rest |
+| `themis plan` | Show which fixes would be applied |
+| `themis apply` | Apply unsatisfied fixes and save rollback state |
+| `themis rollback` | Revert the fixes from the last apply |
+| `themis config path\|get\|set` | Read or write single config values |
+| `themis schedule enable\|disable\|status` | Manage a recurring scan |
+| `themis api check` | Return findings merged with fixes as JSON |
+| `themis system version\|update\|uninstall` | Manage the themis binary |
+| `themis completion` | Install or print shell tab completion |
 
 ## License
 
