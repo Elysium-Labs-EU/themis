@@ -118,3 +118,32 @@ func TestPathFallsBackToHomeDirWhenNotRoot(t *testing.T) {
 		t.Fatalf("Path() = %q, want %q", got, want)
 	}
 }
+
+func TestRenderRoundTripsThroughLoad(t *testing.T) {
+	cases := map[string]Config{
+		"defaults": Defaults(),
+		"all sources off, openscap on with content": {
+			Sources: SourcesConfig{
+				Lynis:    LynisConfig{Enabled: false, Quick: true, SkipUnchanged: true},
+				Native:   NativeConfig{Enabled: false},
+				Osquery:  OsqueryConfig{Enabled: false},
+				OpenSCAP: OpenSCAPConfig{Enabled: true, Content: "/opt/ssg-content.xml", Profile: "xccdf_org.ssgproject.content_profile_cis"},
+			},
+		},
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(Render(cfg)), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			got, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(Render(cfg)): %v", err)
+			}
+			if got != cfg {
+				t.Fatalf("Load(Render(cfg)) = %+v, want %+v", got, cfg)
+			}
+		})
+	}
+}

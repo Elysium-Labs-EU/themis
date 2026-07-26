@@ -119,6 +119,7 @@ Currently covered: `SSH-7408-ROOTLOGIN`, `SSH-7408-PASSWDAUTH`, `KRNL-6000`, `TH
 
 | Command | Description |
 |---------|-------------|
+| `themis init` | Interactively scaffold a commented `config.yaml` (`--yes` writes defaults) |
 | `themis check` | Run an audit and list actionable findings |
 | `themis check --all` | Also show findings with no themis fix and no solution hint |
 | `themis check --scap-content <path>` | Also run OpenSCAP against the given SCAP/XCCDF datastream |
