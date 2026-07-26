@@ -46,6 +46,22 @@ func TestParseReportEmpty(t *testing.T) {
 	}
 }
 
+func TestParseReportHandlesVeryLongLine(t *testing.T) {
+	longDescription := strings.Repeat("x", 200*1024) // well past bufio.Scanner's default 64KB token cap
+	report := "suggestion[]=SSH-7408|" + longDescription + "|-|-|\n"
+
+	findings, err := ParseReport(strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("ParseReport returned error on a long line: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Description != longDescription {
+		t.Errorf("Description truncated or corrupted: got %d chars, want %d", len(findings[0].Description), len(longDescription))
+	}
+}
+
 func TestParseReportShortFields(t *testing.T) {
 	findings, err := ParseReport(strings.NewReader("suggestion[]=TEST-0001\n"))
 	if err != nil {

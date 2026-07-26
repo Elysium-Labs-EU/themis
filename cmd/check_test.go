@@ -154,6 +154,45 @@ func TestPrintCheckReportOmitsDriftSectionWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPrintFindingBlockStripsControlChars(t *testing.T) {
+	f := checkreport.Finding{
+		TestID:      "SSH-7408\x1b[2J",
+		Kind:        "warning\x1b[0m",
+		Description: "harden ssh\x1b[31mHIDDEN\x1b[0m",
+		Solution:    "\x1b]0;pwned\x07run this",
+	}
+
+	buf := &bytes.Buffer{}
+	printFindingBlock(buf, &f)
+	out := buf.String()
+
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("expected no ESC bytes in output, got %q", out)
+	}
+	if strings.ContainsRune(out, 0x07) {
+		t.Errorf("expected no BEL bytes in output, got %q", out)
+	}
+	for _, want := range []string{"SSH-7408", "harden ssh", "HIDDEN", "run this"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q after sanitizing\n---\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintDeemphasizedStripsControlChars(t *testing.T) {
+	deemph := []checkreport.Finding{
+		{TestID: "MISC-0001\x1b[2J", Description: "note\x1b[31mHIDDEN\x1b[0m"},
+	}
+
+	buf := &bytes.Buffer{}
+	printDeemphasized(buf, deemph)
+	out := buf.String()
+
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("expected no ESC bytes in output, got %q", out)
+	}
+}
+
 func TestCheckCmdRunEErrorsWithoutLynisBinary(t *testing.T) {
 	if _, err := exec.LookPath("lynis"); err == nil {
 		t.Skip("lynis is installed on this host; skipping the missing-binary path")
