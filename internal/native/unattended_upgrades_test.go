@@ -1,6 +1,10 @@
 package native
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestUnattendedUpgradesDecision(t *testing.T) {
 	fullyConfigured := "Unattended-Upgrade::Remove-Unused-Kernel-Packages \"true\";\n" +
@@ -50,5 +54,38 @@ func TestUnattendedUpgradesGap(t *testing.T) {
 		"Unattended-Upgrade::Automatic-Reboot \"true\";\n"
 	if reason, solution := unattendedUpgradesGap(fullyConfigured); reason != "" || solution != "" {
 		t.Errorf("expected no gap, got reason=%q solution=%q", reason, solution)
+	}
+}
+
+func TestUnattendedUpgradesFinding(t *testing.T) {
+	// unattendedUpgradesConfigPath is a fixed absolute host path that
+	// doesn't exist on a dev/CI box, so the installed branch
+	// deterministically falls through to "installed but not configured".
+	cases := []struct {
+		name            string
+		dpkgQuery       stubResult
+		wantDescription string
+	}{
+		{"not installed", stubResult{err: errors.New("no such package")}, "unattended-upgrades is not installed"},
+		{"installed but unconfigured host", stubResult{out: "install ok installed"}, "unattended-upgrades installed but not configured"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := stubRunner(t, map[string]stubResult{"dpkg-query": tc.dpkgQuery})
+
+			f, err := unattendedUpgradesFinding(context.Background(), runner)
+			if err != nil {
+				t.Fatalf("unattendedUpgradesFinding: %v", err)
+			}
+			if f == nil {
+				t.Fatal("expected a finding")
+			}
+			if f.TestID != "THEMIS-UNATTENDED-UPGRADES" {
+				t.Errorf("TestID = %q, want THEMIS-UNATTENDED-UPGRADES", f.TestID)
+			}
+			if f.Description != tc.wantDescription {
+				t.Errorf("Description = %q, want %q", f.Description, tc.wantDescription)
+			}
+		})
 	}
 }
