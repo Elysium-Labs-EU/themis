@@ -1,9 +1,16 @@
 package openscap
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+// failingReader always errors on Read, simulating a truncated or
+// unreadable oscap output stream (e.g. a pipe closed mid-scan).
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("simulated read failure") }
 
 func TestParseOutput(t *testing.T) {
 	output := strings.Join([]string{
@@ -90,6 +97,45 @@ func TestParseOutputHandlesSpaceSeparatedFields(t *testing.T) {
 	}
 	if findings[0].Description != "Space Separated" || findings[0].TestID != "xccdf_test_rule" {
 		t.Errorf("got %+v", findings[0])
+	}
+}
+
+func TestParseOutputPropagatesScannerError(t *testing.T) {
+	// A truncated/unreadable stream (e.g. oscap killed mid-run) must
+	// surface as an error, not be silently swallowed as "no findings".
+	_, err := ParseOutput(failingReader{})
+	if err == nil {
+		t.Fatal("expected a scanner error to propagate")
+	}
+}
+
+func TestParseOutputUnknownResultTokenIsTreatedAsFinding(t *testing.T) {
+	// An oscap version we've never seen might emit a result token outside
+	// the known compliant/fail/error vocabulary. Anything not in
+	// compliantResults must still surface as an actionable finding
+	// (suggestion) rather than being silently dropped.
+	output := "Title\tUnknown Future Result\nRule\txccdf_test_rule\nResult\tsomethingnew\n"
+
+	findings, err := ParseOutput(strings.NewReader(output))
+	if err != nil {
+		t.Fatalf("ParseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 || findings[0].Kind != "suggestion" {
+		t.Fatalf("expected 1 suggestion finding for an unknown result token, got %+v", findings)
+	}
+}
+
+func TestParseOutputAbsentIdentDefaultsToDash(t *testing.T) {
+	// oscap omits the Ident line entirely when a rule has no CCE
+	// identifier; Details must fall back to "-" rather than being empty.
+	output := "Title\tNo CCE Identifier\nRule\txccdf_test_rule\nResult\tfail\n"
+
+	findings, err := ParseOutput(strings.NewReader(output))
+	if err != nil {
+		t.Fatalf("ParseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 || findings[0].Details != "-" {
+		t.Fatalf("expected Details to default to \"-\", got %+v", findings)
 	}
 }
 

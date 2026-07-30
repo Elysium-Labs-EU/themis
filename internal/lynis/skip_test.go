@@ -51,6 +51,118 @@ func TestReadFingerprintToleratesMissingConfigFile(t *testing.T) {
 	}
 }
 
+func TestReadFingerprintErrorsWhenConfigPathIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "not-a-file")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+
+	if _, err := readFingerprint([]string{subdir}, pkgList, "full"); err == nil {
+		t.Fatal("expected an error when a config path is a directory, not a regular file")
+	}
+}
+
+func TestReadFingerprintToleratesMissingPkgList(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist")
+
+	fp, err := readFingerprint(nil, missing, "full")
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if fp == "" {
+		t.Fatal("expected a non-empty fingerprint even when the package list is absent")
+	}
+}
+
+func TestReadFingerprintErrorsWhenPkgListStatFails(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "not-a-dir")
+	writeFileT(t, notADir, "x")
+	pkgList := filepath.Join(notADir, "status") // a path component is a regular file, not ENOENT
+
+	if _, err := readFingerprint(nil, pkgList, "full"); err == nil {
+		t.Fatal("expected an error when the package list path can't be stat'd")
+	}
+}
+
+func TestLoadFingerprintErrorsWhenPathIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := loadFingerprint(dir); err == nil {
+		t.Fatal("expected an error reading a directory as the fingerprint cache")
+	}
+}
+
+func TestSaveFingerprintErrorsWhenParentPathIsFile(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "not-a-dir")
+	writeFileT(t, notADir, "x")
+	path := filepath.Join(notADir, "sub", "fingerprint.txt")
+
+	if err := saveFingerprint(path, "fp"); err == nil {
+		t.Fatal("expected an error creating the fingerprint dir under an existing file")
+	}
+}
+
+func TestSaveFingerprintErrorsWhenPathIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := saveFingerprint(dir, "fp"); err == nil {
+		t.Fatal("expected an error writing the fingerprint file over an existing directory")
+	}
+}
+
+func TestShouldSkipErrorsWhenReadFingerprintFails(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "not-a-file")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+
+	if _, err := shouldSkip([]string{subdir}, pkgList, filepath.Join(dir, "fingerprint.txt"), filepath.Join(dir, "report.dat"), "full"); err == nil {
+		t.Fatal("expected shouldSkip to propagate a readFingerprint error")
+	}
+}
+
+func TestShouldSkipErrorsWhenLoadFingerprintFails(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	fingerprintDir := filepath.Join(dir, "fingerprint-as-dir")
+	if err := os.Mkdir(fingerprintDir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	if _, err := shouldSkip(nil, pkgList, fingerprintDir, filepath.Join(dir, "report.dat"), "full"); err == nil {
+		t.Fatal("expected shouldSkip to propagate a loadFingerprint error")
+	}
+}
+
+func TestShouldSkipErrorsWhenReportStatFails(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+	cur, err := readFingerprint(nil, pkgList, "full")
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if saveErr := saveFingerprint(fingerprintPath, cur); saveErr != nil {
+		t.Fatalf("saveFingerprint: %v", saveErr)
+	}
+	notADir := filepath.Join(dir, "not-a-dir")
+	writeFileT(t, notADir, "x")
+	reportPath := filepath.Join(notADir, "report.dat")
+
+	if _, err := shouldSkip(nil, pkgList, fingerprintPath, reportPath, "full"); err == nil {
+		t.Fatal("expected shouldSkip to error when the report path can't be stat'd")
+	}
+}
+
 func TestReadFingerprintChangesWhenPkgListChanges(t *testing.T) {
 	dir := t.TempDir()
 	pkgList := filepath.Join(dir, "dpkg-status")
