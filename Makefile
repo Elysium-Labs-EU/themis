@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck govulncheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -36,6 +36,10 @@ lint: ## Run all linters
 nilcheck: ## Static nil-pointer safety analysis
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
 	nilaway ./...
+
+govulncheck: ## Reachability-aware vulnerability scan (complements OSV-Scanner's lockfile-only scan)
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not found. Run: make setup"; exit 1; }
+	govulncheck ./...
 
 crap: test-coverage-check ## Fail only if a function THIS change modified exceeds the CRAP threshold (Change-Risk Analysis)
 	@command -v go-crap >/dev/null 2>&1 || { echo "go-crap not found. Run: go install github.com/padiazg/go-crap@latest"; exit 1; }
@@ -75,9 +79,11 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions 
 	go install go.uber.org/nilaway/cmd/nilaway@latest
 	@echo "Installing go-crap..."
 	go install github.com/padiazg/go-crap@latest
+	@echo "Installing govulncheck..."
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "Setup complete."
 
-ci: test lint sg nilcheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos-action, no Rust toolchain assumed locally)
+ci: test lint sg nilcheck govulncheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos, no Rust toolchain assumed locally)
 	@echo "All CI checks passed!"
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)
@@ -91,7 +97,7 @@ test-integration: ## Run //go:build integration tests (real host: root+Linux for
 test-integration-orb: ## Run the FULL integration suite (incl host-mutating fix tests) as root on OrbStack $(ORB_MACHINE) (install lynis first: make lynis-install-orb)
 	orb run -m $(ORB_MACHINE) -u root bash -lc "export PATH=/usr/local/go/bin:\$$PATH; export THEMIS_INTEGRATION_MUTATE=1; cd $(PWD) && go test ./... -tags integration -v -count=1"
 
-smoke-update-orb: ## Manual: real dev->latest self-update on OrbStack from a /tmp copy (network; hits Codeberg releases). Not run in CI.
+smoke-update-orb: ## Manual: real dev->latest self-update on OrbStack from a /tmp copy (network; hits GitHub releases). Not run in CI.
 	ssh orb "export PATH=\$$PATH:/usr/local/go/bin && rm -rf /tmp/themis-src && cp -r $(PWD) /tmp/themis-src && cd /tmp/themis-src && CC=clang go build -ldflags \"-X '$(VERSION_PKG).Version=0.0.0-dev'\" -o /tmp/themis-smoke . && echo '--- before ---' && /tmp/themis-smoke system version && echo '--- update ---' && sudo /tmp/themis-smoke system update && echo '--- after ---' && /tmp/themis-smoke system version"
 
 build-orb: ## Build linux/arm64 binary on OrbStack $(ORB_MACHINE) (copies to /tmp to avoid FUSE issues)
