@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck crap crap-report check-signing-key-sync sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -48,6 +48,19 @@ crap-report: ## Print full whole-repo CRAP debt list (no gate; informational)
 check-signing-key-sync: ## Fail if install.sh and cmd/update.go embed different release signing public keys
 	bash scripts/check-signing-key-sync.sh
 
+mod-verify: ## Verify module cache contents match go.sum
+	go mod verify
+
+typos: ## Check for typos in source, docs, and comments (CI installs via crate-ci/typos-action; locally: brew install typos-cli, or cargo install typos-cli)
+	@command -v typos >/dev/null 2>&1 || { echo "typos not found. Install: brew install typos-cli (or cargo install typos-cli)"; exit 1; }
+	typos .
+
+check-any-convention: ## Fail if any *.go file spells the empty interface as interface{} instead of any
+	bash scripts/check-any-convention.sh
+
+check-file-size: ## Fail if the diff against origin/main adds an oversized or binary file (see CHECK_FILE_SIZE_BASE/_MAX)
+	bash scripts/check-file-size.sh
+
 sg: ## Scan codebase with ast-grep rules (skipped until rules/ ported)
 	@if [ -d rules ]; then ast-grep scan; else echo "no rules/ dir yet, skipping"; fi
 
@@ -64,7 +77,7 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions 
 	go install github.com/padiazg/go-crap@latest
 	@echo "Setup complete."
 
-ci: test lint sg nilcheck test-coverage-check crap check-signing-key-sync ## Run all CI checks locally
+ci: test lint sg nilcheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos-action, no Rust toolchain assumed locally)
 	@echo "All CI checks passed!"
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)

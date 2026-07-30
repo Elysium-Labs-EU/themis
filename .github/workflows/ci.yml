@@ -86,6 +86,28 @@ jobs:
       - name: Check install.sh and cmd/update.go embed the same signing key
         run: bash scripts/check-signing-key-sync.sh
 
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check for typos
+        uses: crate-ci/typos@v1.48.0
+
+  file-size-guard:
+    name: File Size Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need origin/main to diff the PR against
+
+      - name: Reject oversized or binary files in the diff
+        run: bash scripts/check-file-size.sh
+
   verify-build:
     name: Verify Build
     runs-on: ubuntu-latest

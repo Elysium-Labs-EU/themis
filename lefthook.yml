@@ -22,9 +22,23 @@ pre-commit:
       run: golangci-lint run --timeout=5m
       priority: 2
 
+    mod-verify:
+      glob: "go.{mod,sum}"
+      run: go mod verify
+      priority: 2
+
     fieldalignment:
       glob: "*.go"
       run: go tool fieldalignment ./...
+      priority: 2
+
+    any-convention:
+      glob: "*.go"
+      run: bash scripts/check-any-convention.sh
+      priority: 2
+
+    file-size:
+      run: bash scripts/check-file-size.sh
       priority: 2
 
     test:
