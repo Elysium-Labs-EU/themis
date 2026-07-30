@@ -1,0 +1,31 @@
+name: Gitleaks
+
+# Secret-scanning is checked on every push/PR to main, not on a schedule: a
+# committed secret needs to be caught at the commit that introduced it, not
+# days later. Repo is public, so gitleaks-action runs free (no license key).
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
