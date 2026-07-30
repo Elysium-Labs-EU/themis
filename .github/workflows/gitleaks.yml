@@ -2,7 +2,8 @@ name: Gitleaks
 
 # Secret-scanning is checked on every push/PR to main, not on a schedule: a
 # committed secret needs to be caught at the commit that introduced it, not
-# days later. Repo is public, so gitleaks-action runs free (no license key).
+# days later. Runs the gitleaks binary directly; gitleaks-action@v2 demands a
+# paid license for every org-owned repo, public or not.
 on:
   push:
     branches:
@@ -26,6 +27,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --redact --verbose --exit-code=1
