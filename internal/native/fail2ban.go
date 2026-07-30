@@ -16,8 +16,8 @@ const fail2banJailLocalPath = "/etc/fail2ban/jail.local"
 // the same three conditions, so checkreport.Build pairs them
 // automatically. Returns nil when the check is satisfied — findings
 // represent problems, not passing checks.
-func fail2banFinding(ctx context.Context) (*audit.Finding, error) {
-	active := runCmd(ctx, "systemctl", "is-active", "--quiet", "fail2ban") == nil
+func fail2banFinding(ctx context.Context, runner commandRunner) (*audit.Finding, error) {
+	active := runCmd(ctx, runner, "systemctl", "is-active", "--quiet", "fail2ban") == nil
 
 	var jailEnabled, banactionScoped bool
 	if active {

@@ -39,11 +39,24 @@ func init() {
 // Name identifies this source as "themis".
 func (Source) Name() string { return "themis" }
 
+// commandRunner runs an external command and returns its combined
+// stdout+stderr. Its shape matches runCmdOutput below, which is the
+// production implementation Run wires by default; fail2banFinding,
+// unattendedUpgradesFinding, and packageInstalled all take one as a
+// parameter instead of shelling out directly, so run and its callers are
+// testable with a fake runner instead of a live host.
+type commandRunner func(ctx context.Context, name string, args ...string) (string, error)
+
 // Run executes every native check and returns their findings.
 func (Source) Run(ctx context.Context) ([]audit.Finding, error) {
+	return run(ctx, runCmdOutput)
+}
+
+// run is the injectable core behind Source.Run.
+func run(ctx context.Context, runner commandRunner) ([]audit.Finding, error) {
 	var findings []audit.Finding
 
-	f2b, err := fail2banFinding(ctx)
+	f2b, err := fail2banFinding(ctx, runner)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +64,7 @@ func (Source) Run(ctx context.Context) ([]audit.Finding, error) {
 		findings = append(findings, *f2b)
 	}
 
-	uu, err := unattendedUpgradesFinding(ctx)
+	uu, err := unattendedUpgradesFinding(ctx, runner)
 	if err != nil {
 		return nil, err
 	}
@@ -62,28 +75,21 @@ func (Source) Run(ctx context.Context) ([]audit.Finding, error) {
 	return findings, nil
 }
 
-// runCmd runs name with args, returning combined output wrapped into the
-// error on failure so callers get actionable context. Takes ctx (unlike
-// internal/fix's runCmd) so a themis check honors audit.Run's
+// runCmd runs name with args via runner, discarding output and reporting
+// only whether it succeeded.
+func runCmd(ctx context.Context, runner commandRunner, name string, args ...string) error {
+	_, err := runner(ctx, name, args...)
+	return err
+}
+
+// runCmdOutput is commandRunner's production implementation: it shells
+// out for real and returns stdout+stderr on success too. Takes ctx
+// (unlike internal/fix's runCmd) so a themis check honors audit.Run's
 // cancellation instead of running unbounded. name is resolved against
 // binpath's trusted dirs rather than $PATH — themis check can run as
 // root, and a bare name search would let anything planted earlier in an
 // inherited $PATH execute in its place. The child's own $PATH is pinned
 // the same way, in case it shells out further internally.
-func runCmd(ctx context.Context, name string, args ...string) error {
-	bin, err := binpath.Resolve(name)
-	if err != nil {
-		return fmt.Errorf("resolving %s: %w", name, err)
-	}
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // bin resolved from a fixed trusted-dir allowlist, not $PATH or user input
-	cmd.Env = binpath.Environ(os.Environ())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("running %s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// runCmdOutput is like runCmd but returns stdout+stderr on success too.
 func runCmdOutput(ctx context.Context, name string, args ...string) (string, error) {
 	bin, err := binpath.Resolve(name)
 	if err != nil {
@@ -100,13 +106,13 @@ func runCmdOutput(ctx context.Context, name string, args ...string) (string, err
 
 // packageInstalled reports whether name is actually installed — not just
 // known to dpkg. Not reused from internal/fix, whose equivalent doesn't
-// take a context — this one honors audit.Run's cancellation via
-// runCmdOutput above. `dpkg -s` exits 0 even for a package left in the
+// take a context — this one honors audit.Run's cancellation via the
+// injected runner. `dpkg -s` exits 0 even for a package left in the
 // "deinstall ok config-files" state (removed with `apt-get remove`, not
 // `purge`: binaries gone, conffiles survive), so this checks dpkg's
 // Status field directly and requires "install ok installed".
-func packageInstalled(ctx context.Context, name string) bool {
-	out, err := runCmdOutput(ctx, "dpkg-query", "-W", "-f=${Status}", name)
+func packageInstalled(ctx context.Context, runner commandRunner, name string) bool {
+	out, err := runner(ctx, "dpkg-query", "-W", "-f=${Status}", name)
 	if err != nil {
 		return false
 	}

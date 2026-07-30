@@ -16,8 +16,8 @@ const unattendedUpgradesConfigPath = "/etc/apt/apt.conf.d/50unattended-upgrades"
 // only tracks whether unattended-upgrades runs at all (paired against
 // Lynis's own PKGS-7392 finding). No fix tracks this ID yet, so the
 // finding carries its own Kind/Solution to stay actionable on its own.
-func unattendedUpgradesFinding(ctx context.Context) (*audit.Finding, error) {
-	if !packageInstalled(ctx, "unattended-upgrades") {
+func unattendedUpgradesFinding(ctx context.Context, runner commandRunner) (*audit.Finding, error) {
+	if !packageInstalled(ctx, runner, "unattended-upgrades") {
 		return unattendedUpgradesDecision(false, false, ""), nil
 	}
 
