@@ -94,7 +94,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Check for typos
-        uses: crate-ci/typos-action@v1
+        uses: crate-ci/typos@v1.48.0
 
   file-size-guard:
     name: File Size Guard
