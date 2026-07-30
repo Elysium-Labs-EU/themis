@@ -279,6 +279,72 @@ func TestPersistFingerprintDisabledOptionIsNoop(t *testing.T) {
 	}
 }
 
+func TestTrySkipReturnsFalseWhenCachedReportFailsIntegrityCheck(t *testing.T) {
+	dir := t.TempDir()
+	pkgList := filepath.Join(dir, "dpkg-status")
+	writeFileT(t, pkgList, "Package: foo\n")
+	reportPath := filepath.Join(dir, "report.dat")
+	writeFileT(t, reportPath, "suggestion[]=SSH-7408|Harden SSH config|-|Change PermitRootLogin|\n")
+	if err := os.Chmod(reportPath, 0o646); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	fingerprintPath := filepath.Join(dir, "fingerprint.txt")
+
+	opts := Options{SkipIfUnchanged: true}
+	cur, err := readFingerprint(nil, pkgList, scanProfile(opts.Quick))
+	if err != nil {
+		t.Fatalf("readFingerprint: %v", err)
+	}
+	if saveErr := saveFingerprint(fingerprintPath, cur); saveErr != nil {
+		t.Fatalf("saveFingerprint: %v", saveErr)
+	}
+
+	findings, ok := trySkip(opts, nil, pkgList, fingerprintPath, reportPath)
+	if ok {
+		t.Error("trySkip should not skip when the cached report fails its integrity check")
+	}
+	if findings != nil {
+		t.Errorf("findings = %v, want nil when the cached report fails integrity check", findings)
+	}
+}
+
+func TestRunLynisAuditSucceeds(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no 'true' binary on PATH")
+	}
+	if runErr := runLynisAudit(t.Context(), bin, Options{}); runErr != nil {
+		t.Fatalf("runLynisAudit: %v", runErr)
+	}
+}
+
+func TestRunLynisAuditErrorsWhenItCannotStart(t *testing.T) {
+	// An already-canceled context makes cmd.Start fail outright (not an
+	// *exec.ExitError), which must surface as a plain error rather than
+	// being tolerated the way a non-zero exit (suggestions/warnings) is.
+	// Using a nonexistent binary path isn't reliable here: when "nice" is
+	// present (as on virtually every Linux/macOS box), priorityWrap wraps
+	// the missing binary behind nice, which itself starts fine and merely
+	// exits non-zero — indistinguishable from a tolerated lynis exit.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := runLynisAudit(ctx, "/bin/true", Options{}); err == nil {
+		t.Fatal("expected an error when the command can't be started")
+	}
+}
+
+func TestRunLynisAuditToleratesNonZeroExit(t *testing.T) {
+	// lynis exits non-zero whenever it has suggestions/warnings; that must
+	// be tolerated, same as a genuine lynis run.
+	bin, err := exec.LookPath("false")
+	if err != nil {
+		t.Skip("no 'false' binary on PATH")
+	}
+	if runErr := runLynisAudit(t.Context(), bin, Options{}); runErr != nil {
+		t.Fatalf("expected a non-zero exit to be tolerated, got error: %v", runErr)
+	}
+}
+
 func TestPersistFingerprintSavesCurrentState(t *testing.T) {
 	dir := t.TempDir()
 	pkgList := filepath.Join(dir, "dpkg-status")

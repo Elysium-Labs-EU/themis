@@ -118,6 +118,31 @@ func TestLoadRejectsMalformedYAML(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsWrongTypeForField(t *testing.T) {
+	// A future config with an unexpected type for a known key (e.g. an
+	// operator typo, or a field type themis changes underneath an old
+	// file) must surface as an error, not silently coerce or ignore.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yamlBody := "sources:\n  lynis:\n    enabled: \"not-a-bool\"\n"
+	if err := os.WriteFile(path, []byte(yamlBody), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected an error when a field's YAML type doesn't match its Go type")
+	}
+}
+
+func TestLoadErrorsWhenFileUnreadable(t *testing.T) {
+	// A path that exists but can't be read as a regular file (e.g. it's a
+	// directory) must surface as a read error distinct from "file missing".
+	dir := t.TempDir()
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected an error reading a directory as the config file")
+	}
+}
+
 func TestGetRendersTypedFieldsAsStrings(t *testing.T) {
 	cfg := Config{
 		Sources: SourcesConfig{
@@ -268,6 +293,89 @@ func TestPathFallsBackToHomeDirWhenNotRoot(t *testing.T) {
 	want := filepath.Join(home, ".themis", "config.yaml")
 	if got := Path(); got != want {
 		t.Fatalf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestPathFallsBackToRootPathWhenHomeDirUnresolvable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; Path() takes the root branch instead")
+	}
+	t.Setenv(EnvVar, "")
+	t.Setenv("HOME", "")
+
+	if got := Path(); got != rootConfigPath {
+		t.Fatalf("Path() = %q, want %q when the home directory can't be resolved", got, rootConfigPath)
+	}
+}
+
+func TestSaveErrorsWhenParentDirCannotBeCreated(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	path := filepath.Join(notADir, "sub", "config.yaml")
+
+	if err := Save(path, Defaults()); err == nil {
+		t.Fatal("expected an error creating the config dir under an existing file")
+	}
+}
+
+func TestSaveErrorsWhenPathIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := Save(dir, Defaults()); err == nil {
+		t.Fatal("expected an error writing the config file over an existing directory")
+	}
+}
+
+func TestSetAllBooleanKeysAcceptValidBoolean(t *testing.T) {
+	keys := []string{
+		"sources.lynis.enabled",
+		"sources.lynis.quick",
+		"sources.lynis.skip_unchanged",
+		"sources.native.enabled",
+		"sources.osquery.enabled",
+		"sources.openscap.enabled",
+		"schedule.enabled",
+	}
+	for _, key := range keys {
+		got, err := Set(Defaults(), key, "true")
+		if err != nil {
+			t.Fatalf("Set(%q, true): %v", key, err)
+		}
+		val, err := Get(got, key)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", key, err)
+		}
+		if val != "true" {
+			t.Errorf("Get(%q) after Set(true) = %q, want %q", key, val, "true")
+		}
+	}
+}
+
+func TestSetAllBooleanKeysRejectInvalidBoolean(t *testing.T) {
+	keys := []string{
+		"sources.lynis.quick",
+		"sources.lynis.skip_unchanged",
+		"sources.native.enabled",
+		"sources.osquery.enabled",
+		"sources.openscap.enabled",
+	}
+	for _, key := range keys {
+		if _, err := Set(Defaults(), key, "notabool"); err == nil {
+			t.Errorf("Set(%q, %q) expected an error for a non-boolean value", key, "notabool")
+		}
+	}
+}
+
+func TestSetOpenSCAPProfile(t *testing.T) {
+	got, err := Set(Defaults(), "sources.openscap.profile", "xccdf_org.ssgproject.content_profile_cis")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got.Sources.OpenSCAP.Profile != "xccdf_org.ssgproject.content_profile_cis" {
+		t.Errorf("Profile = %q, want %q", got.Sources.OpenSCAP.Profile, "xccdf_org.ssgproject.content_profile_cis")
 	}
 }
 

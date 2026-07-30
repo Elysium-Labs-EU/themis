@@ -3,6 +3,7 @@ package openscap
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/Elysium-Labs-EU/themis/internal/ui"
@@ -72,5 +73,31 @@ func TestRunOscapEvalErrorsWhenBinaryMissing(t *testing.T) {
 	_, err := runOscapEval(t.Context(), "/nonexistent/oscap-binary", Options{ContentPath: "/content.xml"})
 	if err == nil {
 		t.Fatal("expected an error when the oscap binary can't be started")
+	}
+}
+
+func TestRunOscapEvalSucceeds(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no 'true' binary on PATH")
+	}
+	out, err := runOscapEval(t.Context(), bin, Options{ContentPath: "/content.xml"})
+	if err != nil {
+		t.Fatalf("runOscapEval: %v", err)
+	}
+	if out != "" {
+		t.Errorf("expected empty stdout from 'true', got %q", out)
+	}
+}
+
+func TestRunOscapEvalToleratesNonZeroExit(t *testing.T) {
+	// oscap exits non-zero whenever any rule fails; this must be tolerated
+	// (stdout still returned, no error), same as a genuine oscap run.
+	bin, err := exec.LookPath("false")
+	if err != nil {
+		t.Skip("no 'false' binary on PATH")
+	}
+	if _, err := runOscapEval(t.Context(), bin, Options{ContentPath: "/content.xml"}); err != nil {
+		t.Fatalf("expected a non-zero exit to be tolerated, got error: %v", err)
 	}
 }

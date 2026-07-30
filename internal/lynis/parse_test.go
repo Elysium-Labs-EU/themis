@@ -1,9 +1,16 @@
 package lynis
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+// failingReader always errors on Read, simulating a truncated or
+// unreadable lynis report (e.g. the file vanishing mid-scan).
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("simulated read failure") }
 
 func TestParseReport(t *testing.T) {
 	report := strings.Join([]string{
@@ -59,6 +66,29 @@ func TestParseReportHandlesVeryLongLine(t *testing.T) {
 	}
 	if findings[0].Description != longDescription {
 		t.Errorf("Description truncated or corrupted: got %d chars, want %d", len(findings[0].Description), len(longDescription))
+	}
+}
+
+func TestParseReportPropagatesScannerError(t *testing.T) {
+	// A truncated/unreadable report stream must surface as an error, not
+	// be silently swallowed as "no findings".
+	_, err := ParseReport(failingReader{})
+	if err == nil {
+		t.Fatal("expected a scanner error to propagate")
+	}
+}
+
+func TestParseReportIgnoresUnknownPrefixLines(t *testing.T) {
+	// A future lynis version might add a new report line kind; anything
+	// that isn't suggestion[]= or warning[]= must be ignored, not
+	// misparsed into a bogus finding.
+	report := "some-new-field[]=value\nlynis_version=3.1.4\n"
+	findings, err := ParseReport(strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("ParseReport returned error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unrecognized prefixes, got %+v", findings)
 	}
 }
 
