@@ -160,52 +160,19 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 		// trustworthiness check guards against, and carry their own
 		// shape — route them out before validation.
 		if f.Kind == "drift" {
-			report.Drift = append(report.Drift, Finding{
-				TestID:      f.TestID,
-				Kind:        f.Kind,
-				Description: f.Description,
-				Details:     f.Details,
-				Sources:     []string{f.Source},
-				Actionable:  true,
-			})
+			report.Drift = append(report.Drift, driftFinding(&f))
 			continue
 		}
 
 		trusted := trustworthy(f.Source, f.TestID, f.Kind, f.Description, f.Solution)
-
-		key := f.TestID + "|" + f.Kind
-		if !trusted {
-			// An untrustworthy TestID/Kind can't be used as a dedup key
-			// either (e.g. an embedded "|" could collide with an
-			// unrelated finding's key), so give it one that can never
-			// match anything else.
-			key = fmt.Sprintf("malformed#%d", i)
-		}
+		key := dedupKey(&f, trusted, i)
 		if idx, ok := seen[key]; ok {
-			existing := &report.Findings[idx]
-			if !slices.Contains(existing.Sources, f.Source) {
-				existing.Sources = append(existing.Sources, f.Source)
-			}
+			mergeSource(&report.Findings[idx], f.Source)
 			continue
 		}
 
-		var tracked []Fix
-		if trusted {
-			tracked = byLynisID[f.TestID]
-			for _, t := range tracked {
-				matched[t.TestID] = true
-			}
-		}
-		report.Findings = append(report.Findings, Finding{
-			TestID:      truncate(f.TestID),
-			Kind:        truncate(f.Kind),
-			Description: truncate(f.Description),
-			Solution:    truncate(f.Solution),
-			Sources:     []string{f.Source},
-			Fixes:       tracked,
-			Malformed:   !trusted,
-			Actionable:  trusted && (len(tracked) > 0 || hasSolution(f.Solution) || f.Kind == "warning"),
-		})
+		tracked := trackedFixes(trusted, f.TestID, byLynisID, matched)
+		report.Findings = append(report.Findings, newFinding(&f, trusted, tracked))
 		seen[key] = len(report.Findings) - 1
 	}
 
@@ -215,6 +182,67 @@ func Build(findings []audit.Finding, fixes []Fix) Report {
 		}
 	}
 	return report
+}
+
+// driftFinding converts an internally-trusted drift audit.Finding into its
+// report Finding — always actionable, single-sourced. Pure — no I/O.
+func driftFinding(f *audit.Finding) Finding {
+	return Finding{
+		TestID:      f.TestID,
+		Kind:        f.Kind,
+		Description: f.Description,
+		Details:     f.Details,
+		Sources:     []string{f.Source},
+		Actionable:  true,
+	}
+}
+
+// dedupKey returns the key Build collapses matching findings under. An
+// untrustworthy finding gets a key that can never match anything else — its
+// TestID/Kind can't be trusted as a dedup key either, since e.g. an
+// embedded "|" could otherwise be crafted to collide with an unrelated
+// finding's key. Pure — no I/O.
+func dedupKey(f *audit.Finding, trusted bool, index int) string {
+	if !trusted {
+		return fmt.Sprintf("malformed#%d", index)
+	}
+	return f.TestID + "|" + f.Kind
+}
+
+// mergeSource records source on existing if not already present.
+func mergeSource(existing *Finding, source string) {
+	if !slices.Contains(existing.Sources, source) {
+		existing.Sources = append(existing.Sources, source)
+	}
+}
+
+// trackedFixes resolves the themis fixes tracking testID (none for an
+// untrusted finding) and marks each as matched so it's excluded from
+// Report.Unmatched.
+func trackedFixes(trusted bool, testID string, byLynisID map[string][]Fix, matched map[string]bool) []Fix {
+	if !trusted {
+		return nil
+	}
+	tracked := byLynisID[testID]
+	for _, t := range tracked {
+		matched[t.TestID] = true
+	}
+	return tracked
+}
+
+// newFinding builds the report Finding for a freshly-seen audit finding.
+// Pure — no I/O.
+func newFinding(f *audit.Finding, trusted bool, tracked []Fix) Finding {
+	return Finding{
+		TestID:      truncate(f.TestID),
+		Kind:        truncate(f.Kind),
+		Description: truncate(f.Description),
+		Solution:    truncate(f.Solution),
+		Sources:     []string{f.Source},
+		Fixes:       tracked,
+		Malformed:   !trusted,
+		Actionable:  trusted && (len(tracked) > 0 || hasSolution(f.Solution) || f.Kind == "warning"),
+	}
 }
 
 // truncate caps s at maxFieldLen runes, appending a marker when it does.

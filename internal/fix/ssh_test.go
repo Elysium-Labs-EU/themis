@@ -229,118 +229,125 @@ func TestSSHDisableDirectiveFixAtMissingFile(t *testing.T) {
 }
 
 func TestAuthorizedKeysExist(t *testing.T) {
-	t.Run("no homes have a .ssh dir", func(t *testing.T) {
-		homes := []string{t.TempDir(), t.TempDir()}
-		ok, err := authorizedKeysExist(homes)
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if ok {
-			t.Fatal("expected false when no home has authorized_keys")
-		}
-	})
-
-	t.Run("authorized_keys file exists but is empty", func(t *testing.T) {
-		home := t.TempDir()
-		sshDir := filepath.Join(home, ".ssh")
-		if err := os.MkdirAll(sshDir, 0o700); err != nil {
-			t.Fatalf("mkdir .ssh: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("   \n"), 0o600); err != nil {
-			t.Fatalf("writing empty authorized_keys: %v", err)
-		}
-		ok, err := authorizedKeysExist([]string{home})
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if ok {
-			t.Fatal("expected false when authorized_keys is blank")
-		}
-	})
-
-	t.Run("one of several homes has a populated authorized_keys", func(t *testing.T) {
-		emptyHome := t.TempDir()
-		keyedHome := t.TempDir()
-		sshDir := filepath.Join(keyedHome, ".ssh")
-		if err := os.MkdirAll(sshDir, 0o700); err != nil {
-			t.Fatalf("mkdir .ssh: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("ssh-ed25519 AAAA... user@host\n"), 0o600); err != nil {
-			t.Fatalf("writing authorized_keys: %v", err)
-		}
-		ok, err := authorizedKeysExist([]string{emptyHome, keyedHome})
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if !ok {
-			t.Fatal("expected true when a home has a non-empty authorized_keys")
-		}
-	})
-
+	t.Run("no homes have a .ssh dir", testAuthorizedKeysExistNoSSHDir)
+	t.Run("authorized_keys file exists but is empty", testAuthorizedKeysExistEmptyFile)
+	t.Run("one of several homes has a populated authorized_keys", testAuthorizedKeysExistOneHomePopulated)
 	// F-016: a comment-only file has non-empty TrimSpace'd content but no
 	// actual key — the old len(TrimSpace(...))>0 check would have wrongly
 	// reported this as usable.
-	t.Run("authorized_keys file has only comments", func(t *testing.T) {
-		home := t.TempDir()
-		sshDir := filepath.Join(home, ".ssh")
-		if err := os.MkdirAll(sshDir, 0o700); err != nil {
-			t.Fatalf("mkdir .ssh: %v", err)
-		}
-		content := "# managed by ansible\n# do not edit by hand\n"
-		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
-			t.Fatalf("writing comment-only authorized_keys: %v", err)
-		}
-		ok, err := authorizedKeysExist([]string{home})
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if ok {
-			t.Fatal("expected false for a comment-only authorized_keys file")
-		}
-	})
-
+	t.Run("authorized_keys file has only comments", testAuthorizedKeysExistCommentsOnly)
 	// F-016: a forced-command-restricted key can't give a locked-out
 	// operator an interactive shell, so it must not count as usable.
-	t.Run("only key present is restricted with a forced command", func(t *testing.T) {
-		home := t.TempDir()
-		sshDir := filepath.Join(home, ".ssh")
-		if err := os.MkdirAll(sshDir, 0o700); err != nil {
-			t.Fatalf("mkdir .ssh: %v", err)
-		}
-		content := `no-port-forwarding,no-agent-forwarding,no-pty,command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n"
-		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
-			t.Fatalf("writing restricted authorized_keys: %v", err)
-		}
-		ok, err := authorizedKeysExist([]string{home})
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if ok {
-			t.Fatal("expected false when the only key is command-restricted")
-		}
-	})
-
+	t.Run("only key present is restricted with a forced command", testAuthorizedKeysExistOnlyRestrictedKey)
 	// F-016: a restricted key alongside a genuinely usable one must still
 	// report true — only the usable key matters.
-	t.Run("restricted key alongside a usable key", func(t *testing.T) {
-		home := t.TempDir()
-		sshDir := filepath.Join(home, ".ssh")
-		if err := os.MkdirAll(sshDir, 0o700); err != nil {
-			t.Fatalf("mkdir .ssh: %v", err)
-		}
-		content := `command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n" +
-			"ssh-ed25519 BBBB... admin@host\n"
-		if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
-			t.Fatalf("writing mixed authorized_keys: %v", err)
-		}
-		ok, err := authorizedKeysExist([]string{home})
-		if err != nil {
-			t.Fatalf("authorizedKeysExist: %v", err)
-		}
-		if !ok {
-			t.Fatal("expected true when an unrestricted key is present alongside a restricted one")
-		}
-	})
+	t.Run("restricted key alongside a usable key", testAuthorizedKeysExistRestrictedAndUsableKeys)
+}
+
+func testAuthorizedKeysExistNoSSHDir(t *testing.T) {
+	homes := []string{t.TempDir(), t.TempDir()}
+	ok, err := authorizedKeysExist(homes)
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if ok {
+		t.Fatal("expected false when no home has authorized_keys")
+	}
+}
+
+func testAuthorizedKeysExistEmptyFile(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("   \n"), 0o600); err != nil {
+		t.Fatalf("writing empty authorized_keys: %v", err)
+	}
+	ok, err := authorizedKeysExist([]string{home})
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if ok {
+		t.Fatal("expected false when authorized_keys is blank")
+	}
+}
+
+func testAuthorizedKeysExistOneHomePopulated(t *testing.T) {
+	emptyHome := t.TempDir()
+	keyedHome := t.TempDir()
+	sshDir := filepath.Join(keyedHome, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte("ssh-ed25519 AAAA... user@host\n"), 0o600); err != nil {
+		t.Fatalf("writing authorized_keys: %v", err)
+	}
+	ok, err := authorizedKeysExist([]string{emptyHome, keyedHome})
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected true when a home has a non-empty authorized_keys")
+	}
+}
+
+func testAuthorizedKeysExistCommentsOnly(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	content := "# managed by ansible\n# do not edit by hand\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+		t.Fatalf("writing comment-only authorized_keys: %v", err)
+	}
+	ok, err := authorizedKeysExist([]string{home})
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if ok {
+		t.Fatal("expected false for a comment-only authorized_keys file")
+	}
+}
+
+func testAuthorizedKeysExistOnlyRestrictedKey(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	content := `no-port-forwarding,no-agent-forwarding,no-pty,command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+		t.Fatalf("writing restricted authorized_keys: %v", err)
+	}
+	ok, err := authorizedKeysExist([]string{home})
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if ok {
+		t.Fatal("expected false when the only key is command-restricted")
+	}
+}
+
+func testAuthorizedKeysExistRestrictedAndUsableKeys(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	content := `command="/usr/bin/rrsync /backup" ssh-ed25519 AAAA... backup@host` + "\n" +
+		"ssh-ed25519 BBBB... admin@host\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(content), 0o600); err != nil {
+		t.Fatalf("writing mixed authorized_keys: %v", err)
+	}
+	ok, err := authorizedKeysExist([]string{home})
+	if err != nil {
+		t.Fatalf("authorizedKeysExist: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected true when an unrestricted key is present alongside a restricted one")
+	}
 }
 
 func TestHasUsableAuthorizedKey(t *testing.T) {

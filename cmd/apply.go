@@ -21,6 +21,16 @@ var (
 	applyTrust string
 )
 
+// applyOutcome is what happened when runApply tried to bring one planned
+// fix to satisfied.
+type applyOutcome int
+
+const (
+	outcomeSkipped applyOutcome = iota
+	outcomeApplied
+	outcomeFailed
+)
+
 // runApply applies every unsatisfied planned fix and persists rollback
 // state to statePath. State is saved after every single successful Apply
 // — not just once at the end of the loop — so a `kill -9` or SIGINT that
@@ -51,62 +61,112 @@ func runApply(cmd *cobra.Command, statePath string) error {
 	applied := 0
 	var failed []string
 	for _, p := range planned {
-		if p.Satisfied {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.FixLabel("[ok]", ui.StatusSatisfied), ui.TextBold.Render(p.TestID))
-			continue
-		}
-		f := fix.Registry[p.TestID]
-		if f.Warn != nil {
-			msg, detected, warnErr := f.Warn()
-			if warnErr != nil {
-				failed = append(failed, p.TestID)
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — checking for warnings: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), warnErr)
-				continue
-			}
-			if detected && !applyForce {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[warn]", ui.StatusWarned), ui.TextBold.Render(p.TestID), msg)
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "           %s\n", ui.TextMuted.Render("skipped — review and rerun with --force to apply anyway"))
-				continue
-			}
-		}
-		if f.SetTrust != nil {
-			cidr, trustErr := resolveTrustedCIDR(cmd.InOrStdin(), cmd.OutOrStdout(), p.TestID, applyYes, applyTrust)
-			if trustErr != nil {
-				failed = append(failed, p.TestID)
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — resolving trusted network: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), trustErr)
-				continue
-			}
-			f.SetTrust(cidr)
-		}
-		revertData, applyErr := f.Apply()
+		outcome, applyErr := applyPlannedFix(cmd, statePath, p, &snap)
 		if applyErr != nil {
+			return applyErr
+		}
+		switch outcome {
+		case outcomeApplied:
+			applied++
+		case outcomeFailed:
 			failed = append(failed, p.TestID)
-			// Some Fix implementations write their target file and then
-			// fail at a later step (e.g. a service reload). That write is
-			// real and already on disk, so a Fix.Apply() that knows this
-			// may return non-nil revertData alongside the error. Record
-			// it exactly like a successful entry so state.json — and a
-			// later rollback — knows about the partial mutation instead
-			// of losing all trace of it.
-			if revertData != nil {
-				snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
-				if saveErr := state.Save(statePath, snap); saveErr != nil {
-					return fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", p.TestID, applyErr, saveErr)
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s (partial mutation recorded and revertible; rollback state saved to %s)\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), applyErr, statePath)
-				continue
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), applyErr)
-			continue
+		case outcomeSkipped:
 		}
-		snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
-		applied++
-		if err := state.Save(statePath, snap); err != nil {
-			return fmt.Errorf("applying %s: succeeded but failed to save rollback state: %w", p.TestID, err)
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[applied]", ui.StatusChanged), ui.TextBold.Render(p.TestID), p.Description)
 	}
 
+	return reportApplyOutcome(cmd, statePath, applied, failed)
+}
+
+// applyPlannedFix brings a single planned fix to satisfied — skipping it
+// (already satisfied, or a Warn the operator hasn't --force'd past),
+// resolving a trust exemption if the fix needs one, and applying — printing
+// progress the same way for every case. Only a state.Save I/O failure
+// returns a non-nil error; every other outcome (including an Apply failure)
+// is reported via the returned applyOutcome instead, since one fix failing
+// must not abort the rest of the run.
+func applyPlannedFix(cmd *cobra.Command, statePath string, p PlannedFix, snap *state.Snapshot) (applyOutcome, error) {
+	if p.Satisfied {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — already satisfied\n", ui.FixLabel("[ok]", ui.StatusSatisfied), ui.TextBold.Render(p.TestID))
+		return outcomeSkipped, nil
+	}
+	f := fix.Registry[p.TestID]
+
+	if outcome, stop := checkApplyWarn(cmd, f.Warn, p.TestID); stop {
+		return outcome, nil
+	}
+
+	if f.SetTrust != nil {
+		cidr, trustErr := resolveTrustedCIDR(cmd.InOrStdin(), cmd.OutOrStdout(), p.TestID, applyYes, applyTrust)
+		if trustErr != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — resolving trusted network: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(p.TestID), trustErr)
+			return outcomeFailed, nil
+		}
+		f.SetTrust(cidr)
+	}
+
+	return applyAndSave(cmd, statePath, f.Apply, p, snap)
+}
+
+// checkApplyWarn runs warn (a Fix's Warn field, if set) and reports whether
+// applyPlannedFix should stop here without applying: stop is true when warn
+// itself failed (outcome outcomeFailed) or detected something the operator
+// hasn't --force'd past (outcome outcomeSkipped). stop is false — proceed to
+// apply — when there's nothing to warn about.
+func checkApplyWarn(cmd *cobra.Command, warn func() (string, bool, error), testID string) (outcome applyOutcome, stop bool) {
+	if warn == nil {
+		return outcomeSkipped, false
+	}
+	msg, detected, warnErr := warn()
+	if warnErr != nil {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — checking for warnings: %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(testID), warnErr)
+		return outcomeFailed, true
+	}
+	if detected && !applyForce {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[warn]", ui.StatusWarned), ui.TextBold.Render(testID), msg)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "           %s\n", ui.TextMuted.Render("skipped — review and rerun with --force to apply anyway"))
+		return outcomeSkipped, true
+	}
+	return outcomeSkipped, false
+}
+
+// applyAndSave calls apply (a Fix's Apply field) and persists the resulting
+// revert data (partial or complete) to statePath, printing progress the
+// same way runApply always has.
+func applyAndSave(cmd *cobra.Command, statePath string, apply func() ([]byte, error), p PlannedFix, snap *state.Snapshot) (applyOutcome, error) {
+	revertData, applyErr := apply()
+	if applyErr != nil {
+		return recordFailedApply(cmd, statePath, p.TestID, applyErr, revertData, snap)
+	}
+	snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: p.TestID, RevertData: revertData})
+	if saveErr := state.Save(statePath, *snap); saveErr != nil {
+		return outcomeFailed, fmt.Errorf("applying %s: succeeded but failed to save rollback state: %w", p.TestID, saveErr)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[applied]", ui.StatusChanged), ui.TextBold.Render(p.TestID), p.Description)
+	return outcomeApplied, nil
+}
+
+// recordFailedApply reports a failed f.Apply call. Some Fix implementations
+// write their target file and then fail at a later step (e.g. a service
+// reload): that write is real and already on disk, so a Fix.Apply() that
+// knows this may return non-nil revertData alongside the error. Record it
+// exactly like a successful entry so state.json — and a later rollback —
+// knows about the partial mutation instead of losing all trace of it.
+func recordFailedApply(cmd *cobra.Command, statePath, testID string, applyErr error, revertData []byte, snap *state.Snapshot) (applyOutcome, error) {
+	if revertData == nil {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(testID), applyErr)
+		return outcomeFailed, nil
+	}
+	snap.Entries = state.Upsert(snap.Entries, state.Entry{TestID: testID, RevertData: revertData})
+	if saveErr := state.Save(statePath, *snap); saveErr != nil {
+		return outcomeFailed, fmt.Errorf("applying %s: %w (also failed to save partial rollback state: %w)", testID, applyErr, saveErr)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s — %s (partial mutation recorded and revertible; rollback state saved to %s)\n", ui.FixLabel("[failed]", ui.StatusFailed), ui.TextBold.Render(testID), applyErr, statePath)
+	return outcomeFailed, nil
+}
+
+// reportApplyOutcome prints the run summary and turns any failures into the
+// error runApply returns.
+func reportApplyOutcome(cmd *cobra.Command, statePath string, applied int, failed []string) error {
 	if len(failed) > 0 {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s %d fix(es) applied, %d fix(es) failed: %s\n", ui.LabelError.Render("✗"), applied, len(failed), strings.Join(failed, ", "))
 		return fmt.Errorf("%d fix(es) failed to apply: %s (rollback state for anything that did succeed is already saved to %s)", len(failed), strings.Join(failed, ", "), statePath)

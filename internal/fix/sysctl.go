@@ -60,72 +60,91 @@ func sysctlFixAt(path string, outRun outputRunner, run cmdRunner, reload func() 
 		TestID:      "KRNL-6000",
 		Description: "harden kernel network parameters via a sysctl drop-in file",
 		Check: func() (bool, error) {
-			content, existed, err := ReadFileOrEmpty(path)
-			if err != nil {
-				return false, err
-			}
-			if !existed || string(content) != desired {
-				return false, nil
-			}
-			for _, kv := range desiredKV {
-				got, outErr := outRun("sysctl", "-n", kv.Key)
-				if outErr != nil {
-					return false, nil //nolint:nilerr // unreadable live value means the check is simply unsatisfied
-				}
-				if strings.TrimSpace(got) != kv.Value {
-					return false, nil
-				}
-			}
-			return true, nil
+			return sysctlCheck(path, desired, desiredKV, outRun)
 		},
 		Apply: func() ([]byte, error) {
-			content, existed, readErr := ReadFileOrEmpty(path)
-			if readErr != nil {
-				return nil, readErr
-			}
-			prevValues := make([]sysctlKV, 0, len(keys))
-			for _, key := range keys {
-				val, outErr := outRun("sysctl", "-n", key)
-				if outErr != nil {
-					return nil, outErr
-				}
-				prevValues = append(prevValues, sysctlKV{Key: key, Value: strings.TrimSpace(val)})
-			}
-			if writeErr := writeFile(path, []byte(desired), 0o644); writeErr != nil {
-				return nil, writeErr
-			}
-			if reloadErr := reload(); reloadErr != nil {
-				return nil, reloadErr
-			}
-			data, err := json.Marshal(sysctlState{FileContent: content, PrevValues: prevValues, FileExisted: existed})
-			if err != nil {
-				return nil, fmt.Errorf("marshaling sysctl revert state: %w", err)
-			}
-			return data, nil
+			return sysctlApply(path, desired, keys, outRun, reload)
 		},
 		RevertWarn: func([]byte) (string, bool, error) {
 			return driftWarning(path, desired)
 		},
 		Revert: func(data []byte) error {
-			var state sysctlState
-			if err := json.Unmarshal(data, &state); err != nil {
-				return fmt.Errorf("unmarshaling sysctl revert state: %w", err)
-			}
-			if !state.FileExisted {
-				if err := removeFile(path); err != nil {
-					return err
-				}
-			} else if err := writeFile(path, state.FileContent, 0o644); err != nil {
-				return err
-			}
-			for _, kv := range state.PrevValues {
-				if err := run("sysctl", "-w", kv.Key+"="+kv.Value); err != nil {
-					return err
-				}
-			}
-			return reload()
+			return sysctlRevert(path, data, run, reload)
 		},
 	}
+}
+
+// sysctlCheck reports whether the drop-in file and every live kernel value
+// it should have written already match desired/desiredKV.
+func sysctlCheck(path, desired string, desiredKV []sysctlKV, outRun outputRunner) (bool, error) {
+	content, existed, err := ReadFileOrEmpty(path)
+	if err != nil {
+		return false, err
+	}
+	if !existed || string(content) != desired {
+		return false, nil
+	}
+	for _, kv := range desiredKV {
+		got, outErr := outRun("sysctl", "-n", kv.Key)
+		if outErr != nil {
+			return false, nil //nolint:nilerr // unreadable live value means the check is simply unsatisfied
+		}
+		if strings.TrimSpace(got) != kv.Value {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// sysctlApply captures the prior file content and live values for every key,
+// writes the drop-in file, reloads sysctl, and returns the captured state
+// JSON-encoded for Revert.
+func sysctlApply(path, desired string, keys []string, outRun outputRunner, reload func() error) ([]byte, error) {
+	content, existed, readErr := ReadFileOrEmpty(path)
+	if readErr != nil {
+		return nil, readErr
+	}
+	prevValues := make([]sysctlKV, 0, len(keys))
+	for _, key := range keys {
+		val, outErr := outRun("sysctl", "-n", key)
+		if outErr != nil {
+			return nil, outErr
+		}
+		prevValues = append(prevValues, sysctlKV{Key: key, Value: strings.TrimSpace(val)})
+	}
+	if writeErr := writeFile(path, []byte(desired), 0o644); writeErr != nil {
+		return nil, writeErr
+	}
+	if reloadErr := reload(); reloadErr != nil {
+		return nil, reloadErr
+	}
+	data, err := json.Marshal(sysctlState{FileContent: content, PrevValues: prevValues, FileExisted: existed})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling sysctl revert state: %w", err)
+	}
+	return data, nil
+}
+
+// sysctlRevert restores the drop-in file (or removes it if it didn't exist
+// before Apply) and writes back every captured live value, then reloads.
+func sysctlRevert(path string, data []byte, run cmdRunner, reload func() error) error {
+	var state sysctlState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshaling sysctl revert state: %w", err)
+	}
+	if !state.FileExisted {
+		if err := removeFile(path); err != nil {
+			return err
+		}
+	} else if err := writeFile(path, state.FileContent, 0o644); err != nil {
+		return err
+	}
+	for _, kv := range state.PrevValues {
+		if err := run("sysctl", "-w", kv.Key+"="+kv.Value); err != nil {
+			return err
+		}
+	}
+	return reload()
 }
 
 // buildSysctlDropIn renders the desired drop-in file content. Pure — no I/O.

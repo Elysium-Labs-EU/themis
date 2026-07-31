@@ -62,28 +62,37 @@ func TestFail2banRevertRestoresPriorServiceState(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "jail.local")
-			svc := &fail2banSvcFake{active: tc.activeBefore, enabled: tc.enabledBefore}
-			f := fail2banFixWith(path, svc.run, func(string) bool { return true })
-
-			data, err := f.Apply()
-			if err != nil {
-				t.Fatalf("Apply: %v", err)
-			}
-			if !svc.active || !svc.enabled {
-				t.Fatalf("expected Apply to leave fail2ban active+enabled, got active=%v enabled=%v", svc.active, svc.enabled)
-			}
-
-			if err := f.Revert(data); err != nil {
-				t.Fatalf("Revert: %v", err)
-			}
-			if svc.active != tc.activeBefore {
-				t.Errorf("active after revert = %v, want %v (pre-apply state)", svc.active, tc.activeBefore)
-			}
-			if svc.enabled != tc.enabledBefore {
-				t.Errorf("enabled after revert = %v, want %v (pre-apply state)", svc.enabled, tc.enabledBefore)
-			}
+			assertFail2banRevertRestoresState(t, tc.activeBefore, tc.enabledBefore)
 		})
+	}
+}
+
+// assertFail2banRevertRestoresState applies then reverts a fail2ban fix
+// against a fake service starting in (activeBefore, enabledBefore) state,
+// asserting Apply leaves it active+enabled and Revert restores the prior
+// state exactly.
+func assertFail2banRevertRestoresState(t *testing.T, activeBefore, enabledBefore bool) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "jail.local")
+	svc := &fail2banSvcFake{active: activeBefore, enabled: enabledBefore}
+	f := fail2banFixWith(path, svc.run, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !svc.active || !svc.enabled {
+		t.Fatalf("expected Apply to leave fail2ban active+enabled, got active=%v enabled=%v", svc.active, svc.enabled)
+	}
+
+	if err := f.Revert(data); err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+	if svc.active != activeBefore {
+		t.Errorf("active after revert = %v, want %v (pre-apply state)", svc.active, activeBefore)
+	}
+	if svc.enabled != enabledBefore {
+		t.Errorf("enabled after revert = %v, want %v (pre-apply state)", svc.enabled, enabledBefore)
 	}
 }
 
