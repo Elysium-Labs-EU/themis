@@ -39,7 +39,7 @@ func fail2banDecision(active, jailEnabled, banactionScoped bool) *audit.Finding 
 	switch {
 	case !active:
 		return &audit.Finding{
-			TestID:      "THEMIS-FAIL2BAN",
+			TestID:      fix.Fail2banTestID,
 			Description: "fail2ban is not installed or not active",
 			Details:     "-",
 			Solution:    "-",
@@ -48,7 +48,7 @@ func fail2banDecision(active, jailEnabled, banactionScoped bool) *audit.Finding 
 		}
 	case !jailEnabled:
 		return &audit.Finding{
-			TestID:      "THEMIS-FAIL2BAN",
+			TestID:      fix.Fail2banTestID,
 			Description: "fail2ban is active but has no enabled sshd jail",
 			Details:     fail2banJailLocalPath,
 			Solution:    "-",
@@ -57,7 +57,7 @@ func fail2banDecision(active, jailEnabled, banactionScoped bool) *audit.Finding 
 		}
 	case !banactionScoped:
 		return &audit.Finding{
-			TestID:      "THEMIS-FAIL2BAN",
+			TestID:      fix.Fail2banTestID,
 			Description: "fail2ban's sshd jail does not scope bans to the port (banaction)",
 			Details:     fail2banJailLocalPath,
 			Solution:    "-",

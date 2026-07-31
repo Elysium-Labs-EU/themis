@@ -34,7 +34,7 @@ func unattendedUpgradesDecision(installed, configExists bool, configContent stri
 	switch {
 	case !installed:
 		return &audit.Finding{
-			TestID:      "THEMIS-UNATTENDED-UPGRADES",
+			TestID:      fix.UnattendedUpgradesTestID,
 			Description: "unattended-upgrades is not installed",
 			Details:     "-",
 			Solution:    "apt-get install unattended-upgrades",
@@ -43,7 +43,7 @@ func unattendedUpgradesDecision(installed, configExists bool, configContent stri
 		}
 	case !configExists:
 		return &audit.Finding{
-			TestID:      "THEMIS-UNATTENDED-UPGRADES",
+			TestID:      fix.UnattendedUpgradesTestID,
 			Description: "unattended-upgrades installed but not configured",
 			Details:     unattendedUpgradesConfigPath,
 			Solution:    "-",
@@ -54,7 +54,7 @@ func unattendedUpgradesDecision(installed, configExists bool, configContent stri
 
 	if reason, solution := unattendedUpgradesGap(configContent); reason != "" {
 		return &audit.Finding{
-			TestID:      "THEMIS-UNATTENDED-UPGRADES",
+			TestID:      fix.UnattendedUpgradesTestID,
 			Description: reason,
 			Details:     unattendedUpgradesConfigPath,
 			Solution:    solution,
