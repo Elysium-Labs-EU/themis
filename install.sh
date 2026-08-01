@@ -69,14 +69,14 @@ confirm() {
     local prompt="$1"
     local default="${2:-n}"
 
-    if [ "$AUTO_YES" = true ]; then
+    if [[ "$AUTO_YES" = true ]]; then
         [[ "$default" =~ ^[Yy]$ ]]
         return $?
     fi
 
     local response
 
-    if [ "$default" = "y" ]; then
+    if [[ "$default" = "y" ]]; then
         prompt="$prompt [Y/n]"
     else
         prompt="$prompt [y/N]"
@@ -90,7 +90,7 @@ confirm() {
 }
 
 check_root() {
-    if [ $EUID -ne 0 ]; then
+    if [[ $EUID -ne 0 ]]; then
         error "This script must be run as root"
         dim "  Try: sudo $0"
         exit 1
@@ -118,7 +118,7 @@ download_file() {
     local output="$2"
     local tool="$3"
 
-    if [ "$tool" = "curl" ]; then
+    if [[ "$tool" = "curl" ]]; then
         curl -fsSL -o "$output" "$url" 2>&1 | sed 's/^/  /'
     else
         wget -q --show-progress -O "$output" "$url" 2>&1 | sed 's/^/  /'
@@ -148,7 +148,7 @@ pick_latest_tag() {
     printf '%s' "$json" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]+)"$/\1/' >"$scratch/tags"
     printf '%s' "$json" | grep -o '"prerelease"[[:space:]]*:[[:space:]]*[a-z]*' | sed -E 's/.*:[[:space:]]*//' >"$scratch/prerelease"
     stable="$(paste -d ' ' "$scratch/prerelease" "$scratch/tags" | awk '$1 == "false" { print $2 }' | sort -V | tail -1)"
-    if [ -n "$stable" ]; then
+    if [[ -n "$stable" ]]; then
         printf '%s' "$stable"
     else
         sort -V "$scratch/tags" | tail -1
@@ -170,19 +170,19 @@ fetch_latest_version() {
     api_base="${THEMIS_API_BASE:-https://api.github.com/repos/${REPO}}"
 
     url="${api_base}/releases/latest"
-    if [ "$tool" = "curl" ]; then
+    if [[ "$tool" = "curl" ]]; then
         release_json=$(curl -fsSL "$url" 2>/dev/null) || true
     else
         release_json=$(wget -qO- "$url" 2>/dev/null) || true
     fi
 
-    if [ -n "$release_json" ]; then
+    if [[ -n "$release_json" ]]; then
         printf '%s' "$release_json" | extract_tag_name
         return
     fi
 
     url="${api_base}/releases?per_page=100"
-    if [ "$tool" = "curl" ]; then
+    if [[ "$tool" = "curl" ]]; then
         release_json=$(curl -fsSL "$url") || return 1
     else
         release_json=$(wget -qO- "$url") || return 1
@@ -237,7 +237,7 @@ refresh_completions() {
     local target_home
     target_home=$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6)
 
-    if [ -z "$target_home" ]; then
+    if [[ -z "$target_home" ]]; then
         return 0
     fi
 
@@ -247,17 +247,17 @@ refresh_completions() {
     local fish_completion="${target_home}/.config/fish/completions/${BINARY_NAME}.fish"
 
     local refreshed=false
-    if [ -f "$bash_completion" ] && "$themis_bin" completion bash > "$bash_completion" 2>/dev/null; then
+    if [[ -f "$bash_completion" ]] && "$themis_bin" completion bash > "$bash_completion" 2>/dev/null; then
         refreshed=true
     fi
-    if [ -f "$zsh_completion" ] && "$themis_bin" completion zsh > "$zsh_completion" 2>/dev/null; then
+    if [[ -f "$zsh_completion" ]] && "$themis_bin" completion zsh > "$zsh_completion" 2>/dev/null; then
         refreshed=true
     fi
-    if [ -f "$fish_completion" ] && "$themis_bin" completion fish > "$fish_completion" 2>/dev/null; then
+    if [[ -f "$fish_completion" ]] && "$themis_bin" completion fish > "$fish_completion" 2>/dev/null; then
         refreshed=true
     fi
 
-    if [ "$refreshed" = true ]; then
+    if [[ "$refreshed" = true ]]; then
         success "Refreshed shell completion for ${target_user}"
     fi
 }
@@ -298,8 +298,8 @@ main() {
     done
 
     # Validate local binary if specified
-    if [ -n "$local_binary" ]; then
-        if [ ! -f "$local_binary" ]; then
+    if [[ -n "$local_binary" ]]; then
+        if [[ ! -f "$local_binary" ]]; then
             error "Local binary not found: $local_binary"
             exit 1
         fi
@@ -322,7 +322,7 @@ main() {
 
     check_lynis
 
-    if [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
+    if [[ "$INSTALL_DIR" != "/usr/local/bin" ]]; then
         dim "  Install directory: $INSTALL_DIR (custom)"
     fi
 
@@ -330,13 +330,13 @@ main() {
 
     # Version resolution - skip when using a local binary
     local version=""
-    if [ -z "$local_binary" ]; then
+    if [[ -z "$local_binary" ]]; then
         version="${THEMIS_VERSION:-}"
-        if [ -z "$version" ]; then
+        if [[ -z "$version" ]]; then
             step "Fetching latest version..."
             version=$(fetch_latest_version "$download_tool") || true
 
-            if [ -z "$version" ]; then
+            if [[ -z "$version" ]]; then
                 error "Failed to fetch latest version"
                 dim "  Set THEMIS_VERSION environment variable to specify manually"
                 exit 1
@@ -353,7 +353,7 @@ main() {
     echo ""
 
     echo -e "${BOLD}Installation plan:${NC}"
-    if [ -n "$local_binary" ]; then
+    if [[ -n "$local_binary" ]]; then
         echo "  1. Use local binary: ${local_binary}"
     else
         echo "  1. Download binary from GitHub"
@@ -368,7 +368,7 @@ main() {
 
     # Get the binary - either from local path or download
     local tmp_binary
-    if [ -n "$local_binary" ]; then
+    if [[ -n "$local_binary" ]]; then
         tmp_binary="$local_binary"
         success "Using local binary"
     else
@@ -386,7 +386,7 @@ main() {
             exit 1
         fi
 
-        if [ ! -f "$tmp_binary" ]; then
+        if [[ ! -f "$tmp_binary" ]]; then
             error "Binary not found after download"
             exit 1
         fi
@@ -406,7 +406,7 @@ main() {
         local expected_checksum
         expected_checksum=$(grep "  ${binary_name}$" "$tmp_checksums" | awk '{print $1}')
 
-        if [ -z "$expected_checksum" ]; then
+        if [[ -z "$expected_checksum" ]]; then
             error "No checksum found for ${binary_name} in sha256sums.txt"
             exit 1
         fi
@@ -414,7 +414,7 @@ main() {
         local actual_checksum
         actual_checksum=$(sha256sum "$tmp_binary" | awk '{print $1}')
 
-        if [ "$expected_checksum" != "$actual_checksum" ]; then
+        if [[ "$expected_checksum" != "$actual_checksum" ]]; then
             error "Checksum mismatch — binary may be corrupted"
             dim "  expected: $expected_checksum"
             dim "  got:      $actual_checksum"
@@ -428,7 +428,7 @@ main() {
         local sig_url="${GITHUB_URL}/${REPO}/releases/download/${version}/sha256sums.txt.sig"
         local tmp_sig="${tmp_dir}/${BINARY_NAME}_sha256sums.txt.sig"
 
-        if download_file "$sig_url" "$tmp_sig" "$download_tool" && [ -s "$tmp_sig" ]; then
+        if download_file "$sig_url" "$tmp_sig" "$download_tool" && [[ -s "$tmp_sig" ]]; then
             if ! command -v openssl &> /dev/null; then
                 error "sha256sums.txt.sig is present but openssl is not installed — cannot verify it"
                 dim "  Install openssl or use --local with a binary you've verified yourself"
@@ -491,6 +491,6 @@ main() {
 
 # THEMIS_INSTALL_SOURCE_ONLY lets tests `source` this file to call its helper
 # functions (e.g. pick_latest_tag) directly, without running the installer.
-if [ "${THEMIS_INSTALL_SOURCE_ONLY:-}" != "1" ]; then
+if [[ "${THEMIS_INSTALL_SOURCE_ONLY:-}" != "1" ]]; then
     main "$@"
 fi
