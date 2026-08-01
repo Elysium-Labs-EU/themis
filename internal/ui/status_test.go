@@ -49,3 +49,27 @@ func TestFixLabelStyleByState(t *testing.T) {
 		t.Errorf("expected distinct styles per state, got equal rendered output: ok=%q warn=%q failed=%q", successRendered, warnRendered, failRendered)
 	}
 }
+
+// TestFixIconRendersWordUnpadded checks that, unlike FixLabel, FixIcon
+// renders its word without padding to fixLabelWidth — it's meant for
+// inline use (prose, a table cell), where fixed padding would just add
+// stray spaces.
+func TestFixIconRendersWordUnpadded(t *testing.T) {
+	got := stripANSI(FixIcon("✓ fixed", StatusSatisfied))
+	if got != "✓ fixed" {
+		t.Errorf("FixIcon visible text = %q, want %q", got, "✓ fixed")
+	}
+}
+
+// TestFixIconPreservesWordAcrossStates checks that FixIcon renders the
+// same input word verbatim (modulo styling) regardless of state — the
+// state only picks the color, matching how check.go calls it with
+// different words per state ("✓ fixed" vs "○ apply").
+func TestFixIconPreservesWordAcrossStates(t *testing.T) {
+	for _, state := range []FixStatus{StatusSatisfied, StatusPending, StatusChanged, StatusWarned, StatusFailed} {
+		got := stripANSI(FixIcon("○ apply", state))
+		if got != "○ apply" {
+			t.Errorf("FixIcon state=%v visible text = %q, want %q", state, got, "○ apply")
+		}
+	}
+}
