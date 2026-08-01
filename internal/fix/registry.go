@@ -51,5 +51,5 @@ var Registry = map[string]Fix{
 	"FIRE-4590":           firewallDefaultDenyFix(),
 	"PKGS-7392":           autoUpdatesFix(),
 	"KRNL-6000":           sysctlHardeningFix(),
-	"THEMIS-FAIL2BAN":     fail2banFix(),
+	Fail2banTestID:        fail2banFix(),
 }

@@ -44,7 +44,7 @@ func fail2banFix() Fix {
 func fail2banFixWith(path string, run cmdRunner, pkgInstalled pkgChecker) Fix {
 	var trustedCIDR string
 	return Fix{
-		TestID:      "THEMIS-FAIL2BAN",
+		TestID:      Fail2banTestID,
 		Description: "install and enable fail2ban with an sshd jail",
 		Warn:        fail2banWarn,
 		SetTrust:    func(cidr string) { trustedCIDR = cidr },
