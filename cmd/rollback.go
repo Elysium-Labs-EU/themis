@@ -39,43 +39,66 @@ func runRollbackAll(cmd *cobra.Command, statePath string, force bool) error {
 		return fmt.Errorf("loading rollback state: %w", err)
 	}
 
-	skipped := make(map[string]bool, len(snap.Entries))
-	reverted := 0
-	for _, entry := range slices.Backward(snap.Entries) {
-		ok, revertErr := revertEntry(cmd, entry, force)
-		if revertErr != nil {
-			return revertErr
-		}
-		if ok {
-			reverted++
-		} else {
-			skipped[entry.TestID] = true
-		}
+	reverted, skipped, err := revertAllEntries(cmd, snap.Entries, force)
+	if err != nil {
+		return err
+	}
+	if err := persistRollbackAllState(statePath, snap, skipped); err != nil {
+		return err
 	}
 
+	printRollbackAllSummary(cmd, reverted, len(skipped))
+	return nil
+}
+
+// revertAllEntries reverts every entry (LIFO order, so later fixes unwind
+// before the ones they may depend on), returning how many reverted and
+// which TestIDs were skipped (drift detected, force not set).
+func revertAllEntries(cmd *cobra.Command, entries []state.Entry, force bool) (reverted int, skipped map[string]bool, err error) {
+	skipped = make(map[string]bool, len(entries))
+	for _, entry := range slices.Backward(entries) {
+		ok, revertErr := revertEntry(cmd, entry, force)
+		if revertErr != nil {
+			return reverted, skipped, revertErr
+		}
+		if !ok {
+			skipped[entry.TestID] = true
+			continue
+		}
+		reverted++
+	}
+	return reverted, skipped, nil
+}
+
+// persistRollbackAllState clears statePath once nothing was skipped, or
+// rewrites it with just the skipped entries so a later `rollback --force`
+// can still revert them.
+func persistRollbackAllState(statePath string, snap state.Snapshot, skipped map[string]bool) error {
 	if len(skipped) == 0 {
 		if err := state.Clear(statePath); err != nil {
 			return fmt.Errorf("clearing rollback state: %w", err)
 		}
-	} else {
-		remaining := make([]state.Entry, 0, len(skipped))
-		for _, entry := range snap.Entries {
-			if skipped[entry.TestID] {
-				remaining = append(remaining, entry)
-			}
-		}
-		snap.Entries = remaining
-		if err := state.Save(statePath, snap); err != nil {
-			return fmt.Errorf("saving rollback state: %w", err)
+		return nil
+	}
+	remaining := make([]state.Entry, 0, len(skipped))
+	for _, entry := range snap.Entries {
+		if skipped[entry.TestID] {
+			remaining = append(remaining, entry)
 		}
 	}
+	snap.Entries = remaining
+	if err := state.Save(statePath, snap); err != nil {
+		return fmt.Errorf("saving rollback state: %w", err)
+	}
+	return nil
+}
 
+func printRollbackAllSummary(cmd *cobra.Command, reverted, skippedCount int) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s rolled back %d fix(es)", ui.LabelSuccess.Render("✓"), reverted)
-	if len(skipped) > 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), ", %d skipped (drift detected — rerun with --force)", len(skipped))
+	if skippedCount > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), ", %d skipped (drift detected — rerun with --force)", skippedCount)
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
-	return nil
 }
 
 // runRollbackOne reverts just the entry matching testID and rewrites

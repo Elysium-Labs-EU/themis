@@ -212,11 +212,21 @@ func TestFirewallDefaultDenyApplyRevertIntegration(t *testing.T) {
 
 	revert := applyWithGuaranteedRevert(t, firewallDefaultDenyFix())
 
-	// Independent verification: ufw active with default-deny incoming AND
-	// an allow rule for sshd's configured port(s) — issue #18 was that
-	// FIRE-4590 enabled default-deny-incoming with zero SSH allow rule,
-	// severing remote access to the box being hardened.
 	status := mustRun(t, "ufw", "status", "verbose")
+	assertFirewallAppliedCorrectly(t, status, wantPorts)
+
+	revert()
+
+	assertFirewallAllowRulesRemoved(t, prevInstalled, prevStatus, wantPorts)
+	assertFirewallPriorStateRestored(t, prevInstalled, prevActive, prevDefault)
+}
+
+// assertFirewallAppliedCorrectly checks ufw is active with default-deny
+// incoming and an allow rule for sshd's configured port(s) — issue #18 was
+// that FIRE-4590 enabled default-deny-incoming with zero SSH allow rule,
+// severing remote access to the box being hardened.
+func assertFirewallAppliedCorrectly(t *testing.T, status string, wantPorts []string) {
+	t.Helper()
 	if !strings.Contains(status, "Status: active") {
 		t.Errorf("ufw not active after apply:\n%s", status)
 	}
@@ -228,23 +238,29 @@ func TestFirewallDefaultDenyApplyRevertIntegration(t *testing.T) {
 			t.Errorf("no ufw ALLOW rule for SSH port %s after apply — this would lock out a remote admin:\n%s", port, status)
 		}
 	}
+}
 
-	revert()
-
-	// Verify the SSH allow rule this fix added is gone after revert too —
-	// not just the default policy — so revert doesn't leave stale rules
-	// behind (only checked when ufw was already installed; otherwise the
-	// package removal below already wipes every rule).
-	if prevInstalled {
-		afterRevertStatus := mustRun(t, "ufw", "status", "verbose")
-		for _, port := range wantPorts {
-			if ufwAllowsPort(afterRevertStatus, port) && !ufwAllowsPort(prevStatus, port) {
-				t.Errorf("ufw ALLOW rule for port %s added by apply still present after revert:\n%s", port, afterRevertStatus)
-			}
+// assertFirewallAllowRulesRemoved verifies the SSH allow rule the fix added
+// is gone after revert too — not just the default policy — so revert
+// doesn't leave stale rules behind. Only checked when ufw was already
+// installed; otherwise the package removal already wipes every rule.
+func assertFirewallAllowRulesRemoved(t *testing.T, prevInstalled bool, prevStatus string, wantPorts []string) {
+	t.Helper()
+	if !prevInstalled {
+		return
+	}
+	afterRevertStatus := mustRun(t, "ufw", "status", "verbose")
+	for _, port := range wantPorts {
+		if ufwAllowsPort(afterRevertStatus, port) && !ufwAllowsPort(prevStatus, port) {
+			t.Errorf("ufw ALLOW rule for port %s added by apply still present after revert:\n%s", port, afterRevertStatus)
 		}
 	}
+}
 
-	// Verify prior state restored.
+// assertFirewallPriorStateRestored verifies ufw's pre-apply state (absent,
+// or active/default-incoming) is restored after revert.
+func assertFirewallPriorStateRestored(t *testing.T, prevInstalled, prevActive bool, prevDefault string) {
+	t.Helper()
 	if !prevInstalled {
 		// ufw was absent before; revert removes it, so the command should be
 		// gone (or at least not report an active firewall we introduced).
