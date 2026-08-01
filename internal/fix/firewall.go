@@ -69,43 +69,55 @@ func firewallCheck(sshdPath string, outRun outputRunner) (bool, error) {
 // exactly what this Apply added rather than a rule that predates themis.
 func firewallApply(sshdPath string, run cmdRunner, outRun outputRunner, pkgInstalled pkgChecker) ([]byte, error) {
 	wasInstalled := pkgInstalled("ufw")
+	state := firewallState{WasInstalled: wasInstalled}
 	if !wasInstalled {
 		if err := run("apt-get", "install", "-y", "ufw"); err != nil {
-			return nil, err
+			return firewallRevertData(state), err
 		}
 	}
 	out, _ := outRun("ufw", "status", "verbose")
-	state := firewallState{
-		WasActive:           strings.Contains(out, "Status: active"),
-		PrevDefaultIncoming: parseDefaultIncoming(out),
-		WasInstalled:        wasInstalled,
-	}
+	state.WasActive = strings.Contains(out, "Status: active")
+	state.PrevDefaultIncoming = parseDefaultIncoming(out)
 
 	content, _, readErr := ReadFileOrEmpty(sshdPath)
 	if readErr != nil {
-		return nil, readErr
+		return firewallRevertData(state), readErr
 	}
 	for _, port := range sshAllowPorts(string(content)) {
 		if ufwAllowsPort(out, port) {
 			continue // already allowed before we touched anything; not ours to revert
 		}
 		if err := run("ufw", "allow", port+"/tcp"); err != nil {
-			return nil, err
+			return firewallRevertData(state), err
 		}
 		state.AllowedPorts = append(state.AllowedPorts, port)
 	}
 
 	if err := run("ufw", "default", "deny", "incoming"); err != nil {
-		return nil, err
+		return firewallRevertData(state), err
 	}
 	if err := run("ufw", "--force", "enable"); err != nil {
-		return nil, err
+		return firewallRevertData(state), err
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling firewall revert state: %w", err)
 	}
 	return data, nil
+}
+
+// firewallRevertData marshals state for a failure branch that follows a
+// real write (an ufw install and/or allow rules already on the host), so
+// recordFailedApply can still save it for a later rollback. A marshal
+// failure here (practically unreachable for this plain-data struct) only
+// costs the partial revert data, not correctness — the caller's original
+// error is what must still surface.
+func firewallRevertData(state firewallState) []byte {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // firewallRevert removes ufw if we installed it (which also drops any rule

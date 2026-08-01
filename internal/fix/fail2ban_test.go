@@ -2,6 +2,7 @@ package fix
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,6 +94,47 @@ func assertFail2banRevertRestoresState(t *testing.T, activeBefore, enabledBefore
 	}
 	if svc.enabled != enabledBefore {
 		t.Errorf("enabled after revert = %v, want %v (pre-apply state)", svc.enabled, enabledBefore)
+	}
+}
+
+// TestFail2banApplyLateFailureReturnsRevertData is the regression test for
+// issue #126: a "systemctl enable --now fail2ban" failure after jail.local
+// is already rewritten must not discard the already-known revert data, or a
+// later `themis rollback` could never restore the prior config.
+func TestFail2banApplyLateFailureReturnsRevertData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jail.local")
+	prior := "[sshd]\nenabled = false\n"
+	if err := os.WriteFile(path, []byte(prior), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	r := &fakeRunner{failOn: "enable --now"}
+	f := fail2banFixWith(path, r.run, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err == nil {
+		t.Fatal("expected Apply to fail when enable fails")
+	}
+	if data == nil {
+		t.Fatal("expected non-nil revertData on a late failure after jail.local was already written")
+	}
+
+	written, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("reading written jail.local: %v", readErr)
+	}
+	if !SSHDJailEnabled(string(written)) {
+		t.Fatalf("expected jail.local patched despite enable failure, got %q", written)
+	}
+
+	if revertErr := f.Revert(data); revertErr != nil {
+		t.Fatalf("Revert: %v", revertErr)
+	}
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("reading reverted jail.local: %v", readErr)
+	}
+	if string(got) != prior {
+		t.Fatalf("expected Revert to restore pre-apply content %q, got %q", prior, got)
 	}
 }
 

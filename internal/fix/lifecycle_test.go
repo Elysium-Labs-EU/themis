@@ -437,6 +437,52 @@ func TestFirewallApplyInstallFailure(t *testing.T) {
 	}
 }
 
+// TestFirewallApplyLateFailureReturnsRevertData is the regression test for
+// issue #126: a "ufw default deny incoming" failure after an SSH allow rule
+// was already added must not discard the already-known revert data, or a
+// later `themis rollback` could never remove the rule Apply added.
+func TestFirewallApplyLateFailureReturnsRevertData(t *testing.T) {
+	sshdPath := filepath.Join(t.TempDir(), "sshd_config") // absent → defaults to port 22
+	var deleted []string
+	run := func(name string, args ...string) error {
+		joined := name + " " + strings.Join(args, " ")
+		switch {
+		case joined == "ufw default deny incoming":
+			return errors.New("forced default-deny failure")
+		case strings.HasPrefix(joined, "ufw delete allow "):
+			deleted = append(deleted, joined)
+		}
+		return nil
+	}
+	outRun := func(string, ...string) (string, error) {
+		return "Status: active\nDefault: allow (incoming), allow (outgoing)\n", nil
+	}
+	f := firewallDefaultDenyFixWith(sshdPath, run, outRun, func(string) bool { return true })
+
+	data, err := f.Apply()
+	if err == nil {
+		t.Fatal("expected Apply to fail when default-deny fails")
+	}
+	if data == nil {
+		t.Fatal("expected non-nil revertData on a late failure after the SSH allow rule was already added")
+	}
+
+	var state firewallState
+	if unmarshalErr := json.Unmarshal(data, &state); unmarshalErr != nil {
+		t.Fatalf("unmarshal revert state: %v", unmarshalErr)
+	}
+	if len(state.AllowedPorts) != 1 || state.AllowedPorts[0] != "22" {
+		t.Fatalf("expected AllowedPorts = [22] captured before the later failure, got %v", state.AllowedPorts)
+	}
+
+	if revertErr := f.Revert(data); revertErr != nil {
+		t.Fatalf("Revert: %v", revertErr)
+	}
+	if len(deleted) != 1 || deleted[0] != "ufw delete allow 22/tcp" {
+		t.Fatalf("expected Revert to delete exactly the SSH allow rule Apply added, got %v", deleted)
+	}
+}
+
 func TestFirewallRevertRestoresPriorPolicy(t *testing.T) {
 	sshdPath := filepath.Join(t.TempDir(), "sshd_config")
 	var restored string

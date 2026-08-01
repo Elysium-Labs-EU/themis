@@ -90,9 +90,6 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 	if writeErr := writeFile(path, []byte(updated), 0o644); writeErr != nil {
 		return nil, writeErr
 	}
-	if enableErr := run("systemctl", "enable", "--now", "fail2ban"); enableErr != nil {
-		return nil, enableErr
-	}
 	state := fail2banState{
 		WasInstalled:  wasInstalled,
 		PrevConfig:    original,
@@ -104,6 +101,12 @@ func fail2banApply(path string, run cmdRunner, pkgInstalled pkgChecker, trustedC
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling fail2ban revert state: %w", err)
+	}
+	if enableErr := run("systemctl", "enable", "--now", "fail2ban"); enableErr != nil {
+		// jail.local above already landed on disk, so this failure's revert
+		// data is real and known — return it so recordFailedApply can save
+		// it and a later rollback can undo the partial mutation.
+		return data, enableErr
 	}
 	return data, nil
 }

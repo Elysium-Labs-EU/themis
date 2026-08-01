@@ -1,6 +1,7 @@
 package fix
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,6 +203,55 @@ func TestSysctlFixAtCheckDetectsLiveDrift(t *testing.T) {
 	}
 	if satisfied {
 		t.Fatal("expected unsatisfied once a live value drifts from the file, even though the file itself is unchanged")
+	}
+}
+
+// TestSysctlApplyLateFailureReturnsRevertData is the regression test for
+// issue #126: a reload failure after the drop-in file is already written
+// must not discard the already-known revert data, or a later `themis
+// rollback` could never undo the partial mutation.
+func TestSysctlApplyLateFailureReturnsRevertData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "60-themis-hardening.conf")
+	original := "# custom pre-existing content\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("seeding file: %v", err)
+	}
+	kernel := newFakeSysctlKernel()
+	reloadShouldFail := true
+	reload := func() error {
+		if reloadShouldFail {
+			return errors.New("forced reload failure")
+		}
+		return kernel.reloadFrom(path)
+	}
+	f := sysctlFixAt(path, kernel.outRun, kernel.run, reload)
+
+	revertData, err := f.Apply()
+	if err == nil {
+		t.Fatal("expected Apply to fail when reload fails")
+	}
+	if revertData == nil {
+		t.Fatal("expected non-nil revertData on a late failure after the drop-in file was already written")
+	}
+
+	written, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("reading written file: %v", readErr)
+	}
+	if string(written) != buildSysctlDropIn() {
+		t.Fatalf("expected drop-in file written despite reload failure, got %q", written)
+	}
+
+	reloadShouldFail = false
+	if revertErr := f.Revert(revertData); revertErr != nil {
+		t.Fatalf("Revert: %v", revertErr)
+	}
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("reading reverted file: %v", readErr)
+	}
+	if string(got) != original {
+		t.Fatalf("expected Revert to restore pre-apply content %q, got %q", original, got)
 	}
 }
 

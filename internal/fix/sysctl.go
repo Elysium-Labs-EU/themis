@@ -115,12 +115,15 @@ func sysctlApply(path, desired string, keys []string, outRun outputRunner, reloa
 	if writeErr := writeFile(path, []byte(desired), 0o644); writeErr != nil {
 		return nil, writeErr
 	}
-	if reloadErr := reload(); reloadErr != nil {
-		return nil, reloadErr
-	}
 	data, err := json.Marshal(sysctlState{FileContent: content, PrevValues: prevValues, FileExisted: existed})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling sysctl revert state: %w", err)
+	}
+	if reloadErr := reload(); reloadErr != nil {
+		// The drop-in write above already landed on disk, so this failure's
+		// revert data is real and known — return it so recordFailedApply
+		// can save it and a later rollback can undo the partial mutation.
+		return data, reloadErr
 	}
 	return data, nil
 }
