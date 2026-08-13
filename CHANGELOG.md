@@ -2,6 +2,77 @@
 
 All notable changes to themis are documented here.
 
+## [0.0.4] - 2026-08-13
+
+### Bug Fixes
+- Use [[ ]] instead of [ ] in conditionals (#123) ([`50a8979`](https://github.com/Elysium-Labs-EU/themis/commit/50a8979c9e0f50db91aef276f03c45ada314882c))
+- Return partial revertData on late Apply failure (#126) (#127) ([`82abcc3`](https://github.com/Elysium-Labs-EU/themis/commit/82abcc3cde04db235eaa43f02f0817382ff7c276))
+
+
+### CI/CD
+- Add typo, mod-verify, file-size, and any-convention gates (#108) ([`d0535fa`](https://github.com/Elysium-Labs-EU/themis/commit/d0535fa34e667f543403c7d3082a876123b88c0f))
+- SHA-pin actions, enforce HTTPS on downloads, scope release perms (#119) ([`4d179c0`](https://github.com/Elysium-Labs-EU/themis/commit/4d179c08e0c0b7b2c7cfc35ad1e33d9d710dc905))
+- Pin remaining actions and harden gitleaks curl download (#125) ([`c455653`](https://github.com/Elysium-Labs-EU/themis/commit/c45565349f896797533ed67bd775ef800170d3d4))
+
+
+### Features
+- Add gitleaks scanning and govulncheck to CI (#109) ([`e8634d8`](https://github.com/Elysium-Labs-EU/themis/commit/e8634d877ae411c8802531f91a07b38c0e88821d))
+- Add SonarQube Cloud scanning to CI (#111)
+
+* docs: rewrite README around config, sources, and scheduling; move release integrity to SECURITY.md
+
+* Add SonarQube Cloud scanning to CI
+
+Go isn't covered by Sonar's Automatic Analysis mode, so this adds its
+own workflow: generate coverage.out via go test, then run the
+SonarQube scan action against it.
+
+* SHA-pin actions in sonarqube.yml to satisfy Sonar's supply-chain rule
+
+CI-based scan run flagged the tag-pinned sonarqube-scan-action as a
+new-code security vulnerability (githubactions:S7637). Pinning by
+full commit SHA with the version kept as a comment.
+
+---------
+
+Co-authored-by: R Tuerlings <sgnilreutr@noreply.codeberg.org> ([`37622ae`](https://github.com/Elysium-Labs-EU/themis/commit/37622aeb934e968d5542e4c8e7013622af6c9f8e))
+
+
+### Maintenance
+- Enable Dependabot for gomod and github-actions (#99) ([`079c2e6`](https://github.com/Elysium-Labs-EU/themis/commit/079c2e64923d7a7c1b4fe05cd592e1af07c42d38))
+- Bump softprops/action-gh-release from 2 to 3 (#100) ([`deebabb`](https://github.com/Elysium-Labs-EU/themis/commit/deebabb7e21a2c327948a648aa12009c6098e4a6))
+- Bump actions/upload-artifact from 6 to 7 (#101) ([`09c9bcd`](https://github.com/Elysium-Labs-EU/themis/commit/09c9bcdc85eb8830e1124f4c07b8aa4ba00659ac))
+- Bump actions/setup-go from 6 to 7 (#102) ([`f8250a8`](https://github.com/Elysium-Labs-EU/themis/commit/f8250a88d321da67d7ee8718488ad3980de58585))
+- Bump actions/download-artifact from 7 to 8 (#104) ([`82f7f63`](https://github.com/Elysium-Labs-EU/themis/commit/82f7f63142e727379408192d222b9587a74c04b7))
+- Bump github.com/mattn/go-isatty (#103) ([`91c45dc`](https://github.com/Elysium-Labs-EU/themis/commit/91c45dc591b52c97e02fa3971858d3a838d5e7c9))
+- Remove dead dataValidators.ts and object.ts (#118) ([`e918f76`](https://github.com/Elysium-Labs-EU/themis/commit/e918f76ba6b503955a7398dfedcbb77e5d91b460))
+- Give each worktree its own golangci-lint cache (#129) ([`7e450aa`](https://github.com/Elysium-Labs-EU/themis/commit/7e450aa733ec8c3700b352092cb968f2e6b0c7d2))
+
+
+### Refactoring
+- Centralize THEMIS-* identifier constants (#120) ([`ae78e2d`](https://github.com/Elysium-Labs-EU/themis/commit/ae78e2d6f7255ff1077220656d1fea7cd8f02609))
+- Reduce cognitive complexity of SonarQube-flagged functions (#122) ([`fc03273`](https://github.com/Elysium-Labs-EU/themis/commit/fc032734e47adaa66b969ac8e967611b46d35bba))
+
+
+### Testing
+- Cover exec paths via injected command runner (#106) ([`2e53f2a`](https://github.com/Elysium-Labs-EU/themis/commit/2e53f2aa53fe5d9453ee09c5cd3ee10ce7694180))
+- Raise openscap/config/lynis coverage to 80%+ (#107) ([`f590e2f`](https://github.com/Elysium-Labs-EU/themis/commit/f590e2fe2e6d7047d9dfaa59745922e2f1283631))
+- Cover api_check, privilege, osquery Query, ui spinner/prompt/error (#121) ([`fd67fdf`](https://github.com/Elysium-Labs-EU/themis/commit/fd67fdf9b61ad425597329849a91376ae683125f))
+
+## [0.0.4-rc.1] - 2026-07-26
+
+### Bug Fixes
+- Themis-fix-issue-81 (#81) (#87) ([`0b54bce`](https://github.com/Elysium-Labs-EU/themis/commit/0b54bce75c7cb75d7e5fc76517643e0c2cc1c2eb))
+- Themis-fix-issue-82 (#82) (#88) ([`afbf30b`](https://github.com/Elysium-Labs-EU/themis/commit/afbf30b39f3b575f9b1810d7bcbef073ea4171c3))
+- Themis-fix-issue-83 (#83) (#90) ([`755d3cc`](https://github.com/Elysium-Labs-EU/themis/commit/755d3cca6468892b86faf2db3c762efc804e2bfe))
+- Themis-fix-issue-84 (#84) (#91) ([`71b0f8f`](https://github.com/Elysium-Labs-EU/themis/commit/71b0f8f307553fa5ac0d7d709fdbd525dba7790a))
+- Themis-fix-issue-85 (#85) (#92) ([`e071bbb`](https://github.com/Elysium-Labs-EU/themis/commit/e071bbbb96e30b9a9c4c7a7fc04738047cbb23d8))
+- Harden untrusted audit-source input (#93) ([`f256abc`](https://github.com/Elysium-Labs-EU/themis/commit/f256abc48b56d16d4699ce5b0fa06854bf3b02eb))
+
+
+### Documentation
+- Rewrite README around config, sources, and scheduling; move release integrity to SECURITY.md (#94) ([`cce7e5e`](https://github.com/Elysium-Labs-EU/themis/commit/cce7e5e56f70b6f68c9f1fa24b8013351ce5a8e1))
+
 ## [0.0.3] - 2026-07-25
 
 ### Bug Fixes
