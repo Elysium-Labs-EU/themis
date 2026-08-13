@@ -2,3 +2,7 @@
 /dist/
 coverage.out
 .claude/argus/
+
+# golangci-lint cache, kept per worktree so sibling trees cannot serve each
+# other stale findings (see GOLANGCI_LINT_CACHE in the Makefile)
+.cache/
