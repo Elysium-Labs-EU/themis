@@ -1,7 +1,34 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
 /bin/
 /dist/
+/themis
 coverage.out
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+
+# misc
+.DS_Store
 .claude/argus/
+CLAUDE.local.md
+
+# Local code-intelligence index. A git worktree gets this as a symlink to the
+# original checkout's copy, and a trailing slash would not match that.
+.gitnexus
 
 # golangci-lint cache, kept per worktree so sibling trees cannot serve each
 # other stale findings (see GOLANGCI_LINT_CACHE in the Makefile)
