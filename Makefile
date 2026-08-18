@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck govulncheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck govulncheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size check-golangci-pin sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -14,6 +14,12 @@ GOBIN=./bin
 # invokes golangci-lint directly, so this export never reaches it. Must be
 # absolute; $(CURDIR) is.
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
+
+# Single source of truth for the golangci-lint version. Every consumer (this
+# Makefile, lefthook.yml, release.yml, and scripts/check-golangci-pin.sh)
+# reads it from here instead of hardcoding a version string, so a bump is a
+# one-line change to .golangci-lint-version.
+GOLANGCI_LINT_VERSION := $(shell cat .golangci-lint-version)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -40,8 +46,7 @@ test-coverage-check: ## Fail if total coverage is below COVERAGE_THRESHOLD
 		'BEGIN { if (total+0 < threshold+0) { print "Coverage " total "% below threshold " threshold "%"; exit 1 } }'
 
 lint: ## Run all linters
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not found. Run: make setup"; exit 1; }
-	golangci-lint run --timeout=5m
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run --timeout=5m
 
 nilcheck: ## Static nil-pointer safety analysis
 	@command -v nilaway >/dev/null 2>&1 || { echo "nilaway not found. Run: make setup"; exit 1; }
@@ -75,16 +80,19 @@ check-any-convention: ## Fail if any *.go file spells the empty interface as int
 check-file-size: ## Fail if the diff against origin/main adds an oversized or binary file (see CHECK_FILE_SIZE_BASE/_MAX)
 	bash scripts/check-file-size.sh
 
+check-golangci-pin: ## Fail if any consumer drifts from the pinned golangci-lint version in .golangci-lint-version
+	bash scripts/check-golangci-pin.sh
+
 sg: ## Scan codebase with ast-grep rules (skipped until rules/ ported)
 	@if [ -d rules ]; then ast-grep scan; else echo "no rules/ dir yet, skipping"; fi
 
 fix: ## Fix go formatting
-	golangci-lint fmt
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) fmt
 	go tool fieldalignment -fix ./...
 
 setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions as eos
-	@echo "Installing golangci-lint v2.11.0..."
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v2.11.0
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
 	@echo "Installing nilaway..."
 	go install go.uber.org/nilaway/cmd/nilaway@latest
 	@echo "Installing go-crap..."
@@ -93,7 +101,7 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions 
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "Setup complete."
 
-ci: test lint sg nilcheck govulncheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos, no Rust toolchain assumed locally)
+ci: test lint sg nilcheck govulncheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size check-golangci-pin ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos, no Rust toolchain assumed locally)
 	@echo "All CI checks passed!"
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)
