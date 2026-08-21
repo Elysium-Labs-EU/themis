@@ -160,8 +160,7 @@ func runLynisAudit(ctx context.Context, lynisBin string, opts Options) error {
 	if runErr == nil {
 		return nil
 	}
-	var exitErr *exec.ExitError
-	if !errors.As(runErr, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](runErr); !ok {
 		return fmt.Errorf("running lynis audit: %w", runErr)
 	}
 	return nil

@@ -87,8 +87,7 @@ func runOscapEval(ctx context.Context, oscapBin string, opts Options) (string, e
 	if runErr == nil {
 		return string(out), nil
 	}
-	var exitErr *exec.ExitError
-	if !errors.As(runErr, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](runErr); !ok {
 		return "", fmt.Errorf("running oscap xccdf eval: %w", runErr)
 	}
 	return string(out), nil
