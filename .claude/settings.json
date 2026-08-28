@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(argus supervise *)"
+    ],
+    "deny": [
+      "Bash(herdr pane send-text:*)",
+      "Bash(herdr pane send-keys:*)",
+      "Bash(herdr pane run:*)"
+    ]
+  }
+}

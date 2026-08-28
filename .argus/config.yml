@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Elysium-Labs-EU/argus/main/schemas/config.schema.json
+# .argus/config.yml — all keys are optional; see `argus init`.
+base_branch: "main"
+brief_note: "REPORTING IS A ONE-LINE COMMAND. Pass the JSON body as a bash herestring, never a heredoc: argus worker report planning <<< '{\"task\":\"...\",\"plan\":[\"...\"]}'. Your allow set matches by command prefix and a prefix glob does not match across a newline, so the multi-line heredoc form (<<'JSON' ... JSON) is denied outright by the permission layer, not by argus's own hook. One line, herestring, every time.\n\nBefore reporting a terminal phase run the FULL CI gate locally with `make ci` (it runs test, lint, sg, nilcheck/nilaway, coverage, and crap) and fix every issue until it exits clean; never silence with nolint. golangci-lint alone is not enough: nilaway (make nilcheck) also runs in CI and rejects unguarded nil derefs like os.Stat result used before an err check. The nilnil linter bans returning a nil value with a nil error, and govet fieldalignment requires tight struct field ordering. Run go test with -count=1 so a stale cache never hides a failure."
+
+phases:
+  working:
+    allow:
+      - "Bash(make *)"
+  self_test:
+    allow:
+      - "Bash(make *)"
