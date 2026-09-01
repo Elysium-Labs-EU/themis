@@ -74,7 +74,7 @@ case <-stopCh:
     _ = cmd.Wait()
 ```
 
-**`defer close(doneCh)` registers after early returns → deadlock.**
+**`defer close(doneCh)` registers after early returns: deadlock.**
 Register defer first, or close explicitly on every early exit.
 ```go
 // Wrong: caller blocks forever on <-doneCh
@@ -93,7 +93,7 @@ Use mutex-safe container directly; no intermediate channel needed.
 **Concurrent drain ordering on shutdown.**
 When stopCh fires: if goroutine A feeds buffer and goroutine B drains it,
 there is no ordering — B may finish before A pushes last records.
-Solution: eliminate one goroutine, or signal A→done before B reads final pass.
+Solution: eliminate one goroutine, or signal A then done before B reads final pass.
 
 **`time.After` in loop select leaks timer.**
 Use `time.NewTimer` + `defer t.Stop()` or `t.Stop()` on early select exit.
