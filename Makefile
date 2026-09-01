@@ -1,4 +1,4 @@
-.PHONY: help build test test-coverage-check lint nilcheck govulncheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size check-golangci-pin sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
+.PHONY: help build test test-coverage-check lint nilcheck govulncheck crap crap-report check-signing-key-sync mod-verify typos check-any-convention check-file-size check-golangci-pin check-arrow-notation sg fix setup ci test-linux test-integration test-integration-orb smoke-update-orb build-orb demo-orb lynis-install-orb orb-shell clean release release-local changelog changelog-preview pre-release
 
 ORB_MACHINE ?= debian
 COVERAGE_THRESHOLD ?= 49
@@ -83,6 +83,9 @@ check-file-size: ## Fail if the diff against origin/main adds an oversized or bi
 check-golangci-pin: ## Fail if any consumer drifts from the pinned golangci-lint version in .golangci-lint-version
 	bash scripts/check-golangci-pin.sh
 
+check-arrow-notation: ## Fail if markdown prose uses arrow notation (ASCII, unicode, or HTML entity)
+	bash scripts/check-arrow-notation.sh
+
 sg: ## Scan codebase with ast-grep rules (skipped until rules/ ported)
 	@if [ -d rules ]; then ast-grep scan; else echo "no rules/ dir yet, skipping"; fi
 
@@ -101,7 +104,7 @@ setup: ## Install dev tools (golangci-lint, nilaway, go-crap) — same versions 
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "Setup complete."
 
-ci: test lint sg nilcheck govulncheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size check-golangci-pin ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos, no Rust toolchain assumed locally)
+ci: test lint sg nilcheck govulncheck test-coverage-check crap check-signing-key-sync mod-verify check-any-convention check-file-size check-golangci-pin check-arrow-notation ## Run all CI checks locally (typos runs as its own CI job via crate-ci/typos, no Rust toolchain assumed locally)
 	@echo "All CI checks passed!"
 
 test-linux: ## Run tests on OrbStack $(ORB_MACHINE) Linux (mirrors CI, root env)
