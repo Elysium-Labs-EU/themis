@@ -20,8 +20,7 @@ func TestAuditRequiresRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when not running as root")
 	}
-	var userErr *ui.UserError
-	if !errors.As(err, &userErr) {
+	if _, ok := errors.AsType[*ui.UserError](err); !ok {
 		t.Fatalf("error = %v (%T), want *ui.UserError", err, err)
 	}
 }

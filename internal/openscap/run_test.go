@@ -42,8 +42,8 @@ func TestAuditErrorsWithoutContentPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when ContentPath is empty")
 	}
-	var uerr *ui.UserError
-	if !errors.As(err, &uerr) {
+	uerr, ok := errors.AsType[*ui.UserError](err)
+	if !ok {
 		t.Fatalf("expected a *ui.UserError in the chain, got %v", err)
 	}
 	if uerr.Hint == "" {
@@ -60,8 +60,7 @@ func TestAuditErrorsWithoutRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when not running as root")
 	}
-	var uerr *ui.UserError
-	if !errors.As(err, &uerr) {
+	if _, ok := errors.AsType[*ui.UserError](err); !ok {
 		t.Fatalf("expected a *ui.UserError in the chain, got %v", err)
 	}
 }
